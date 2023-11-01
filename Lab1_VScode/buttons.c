@@ -19,6 +19,8 @@
 #include "sysctl_pll.h"
 #include "buttons.h"
 
+#include "inc/tm4c1294ncpdt.h"
+
 // public globals
 volatile uint32_t gButtons = 0; // debounced button state, one per bit in the lowest bits
                                 // button is pressed if its bit is 1, not pressed if 0
@@ -28,15 +30,6 @@ uint32_t gADCSamplingRate;      // [Hz] actual ADC sampling rate
 // imported globals
 extern uint32_t gSystemClock;   // [Hz] system clock frequency
 extern volatile uint32_t gTime; // time in hundredths of a second
-
-//for ADC
-// #define ADC_BUFFER_SIZE 2048 // size must be a power of 2
-// // index wrapping macro
-// #define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
-// // latest sample index
-// volatile int32_t gADCBufferIndex = ADC_BUFFER_SIZE - 1;
-// volatile uint16_t gADCBuffer[ADC_BUFFER_SIZE]; // circular buffer
-// volatile uint32_t gADCErrors = 0; // number of missed ADC deadlines
 
 // initialize all button and joystick handling hardware
 void ButtonInit(void)
@@ -92,6 +85,7 @@ void ButtonInit(void)
     ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_CH13);                             // Joystick HOR(X)
     ADCSequenceStepConfigure(ADC0_BASE, 0, 1, ADC_CTL_CH17 | ADC_CTL_IE | ADC_CTL_END);  // Joystick VER(Y)
     ADCSequenceEnable(ADC0_BASE, 0);
+
 
 }
 
@@ -196,16 +190,3 @@ void ButtonISR(void) {
 }
 
 
-void ADC_ISR(void)
-{
-// clear ADC1 sequence0 interrupt flag in the ADCISC register
-    //sequence inteerrupts are cleared by writing 1 to the corresponding in bit
-// check for ADC FIFO overflow
-if(ADC1_OSTAT_R & ADC_OSTAT_OV0) {
-gADCErrors++; // count errors
-ADC1_OSTAT_R = ADC_OSTAT_OV0; // clear overflow condition
-}
-gADCBufferIndex = ADC_BUFFER_WRAP(gADCBufferIndex + 1)
-// read sample from the ADC1 sequence 0 FIFO
-gADCBuffer[gADCBufferIndex] = <...>;
-}

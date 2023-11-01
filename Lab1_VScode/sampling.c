@@ -33,12 +33,12 @@ volatile uint32_t gADCErrors = 0; // number of missed ADC deadlines
 void ADCInit(void)
 {
      // initialize a general purpose timer for periodic interrupts
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
-    TimerDisable(TIMER0_BASE, TIMER_BOTH);
-    TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
-    TimerLoadSet(TIMER0_BASE, TIMER_A, roundf((float)gSystemClock / ADC_SAMPLING_RATE) - 1);
-    TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
-    TimerEnable(TIMER0_BASE, TIMER_BOTH);
+    // SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+    // TimerDisable(TIMER0_BASE, TIMER_BOTH);
+    // TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
+    // TimerLoadSet(TIMER0_BASE, TIMER_A, roundf((float)gSystemClock / ADC_SAMPLING_RATE) - 1);
+    // TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+    // TimerEnable(TIMER0_BASE, TIMER_BOTH);
 
 
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
@@ -51,7 +51,7 @@ void ADCInit(void)
     uint32_t pll_divisor = (pll_frequency - 1) / (16 * ADC_SAMPLING_RATE) + 1; // round up
     ADCClockConfigSet(ADC0_BASE, ADC_CLOCK_SRC_PLL | ADC_CLOCK_RATE_FULL, pll_divisor);
     ADCClockConfigSet(ADC1_BASE, ADC_CLOCK_SRC_PLL | ADC_CLOCK_RATE_FULL, pll_divisor);
-    
+
     // choose ADC1 sequence 0; disable before configuring
     ADCSequenceDisable(ADC1_BASE, 0);
     ADCSequenceConfigure(ADC1_BASE, 0, ADC_TRIGGER_ALWAYS, 0); // specify the "Always" trigger
@@ -76,9 +76,8 @@ void ADC_ISR(void)
     // clear ADC1 sequence0 interrupt flag in the ADCISC register
         //sequence interrupts are cleared by writing 1 to the corresponding in bit
     //ADC1_ADCISC_R = ADC_ADCISC_IN0 & ~1;   //not sure about this one
-    // check for ADC FIFO overflow
     ADC1_ISC_R = ADC_ISC_IN0 & 1;
-
+    // check for ADC FIFO overflow
     if(ADC1_OSTAT_R & ADC_OSTAT_OV0) {
         gADCErrors++; // count errors
         ADC1_OSTAT_R = ADC_OSTAT_OV0; // clear overflow condition

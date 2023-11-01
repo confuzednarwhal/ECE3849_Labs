@@ -29,7 +29,22 @@
 uint32_t gSystemClock; // [Hz] system clock frequency
 volatile uint32_t gTime = 8345; // time in hundredths of a second
 
-
+int signal_init(void){
+    // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+    GPIOPinTypePWM(GPIO_PORTF_BASE, GPIO_PIN_2);
+    GPIOPinConfigure(GPIO_PF2_M0PWM2);
+    GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_2,GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD);
+    // configure the PWM0 peripheral, gen 1, outputs 2 and 3
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
+    // use system clock without division
+    PWMClockSet(PWM0_BASE, PWM_SYSCLK_DIV_1);
+    PWMGenConfigure(PWM0_BASE, PWM_GEN_1,PWM_GEN_MODE_DOWN | PWM_GEN_MODE_NO_SYNC);
+    PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,roundf((float)gSystemClock/PWM_FREQUENCY));
+    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_2,roundf((float)gSystemClock/PWM_FREQUENCY*0.4f));
+    PWMOutputState(PWM0_BASE, PWM_OUT_2_BIT, true);
+    PWMGenEnable(PWM0_BASE, PWM_GEN_1);
+}
 
 int main(void)
 {
@@ -45,35 +60,16 @@ int main(void)
     Crystalfontz128x128_Init(); // Initialize the LCD display driver
     Crystalfontz128x128_SetOrientation(LCD_ORIENTATION_UP); // set screen orientation
 
-
     tContext sContext;
     GrContextInit(&sContext, &g_sCrystalfontz128x128); // Initialize the grlib graphics context
     GrContextFontSet(&sContext, &g_sFontFixed6x8); // select font
-
-    // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
-    GPIOPinTypePWM(GPIO_PORTF_BASE, GPIO_PIN_2);
-    GPIOPinConfigure(GPIO_PF2_M0PWM2);
-    GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_2,
-    GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD);
-    // configure the PWM0 peripheral, gen 1, outputs 2 and 3
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
-    // use system clock without division
-    PWMClockSet(PWM0_BASE, PWM_SYSCLK_DIV_1);
-    PWMGenConfigure(PWM0_BASE, PWM_GEN_1,
-    PWM_GEN_MODE_DOWN | PWM_GEN_MODE_NO_SYNC);
-    PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,
-    roundf((float)gSystemClock/PWM_FREQUENCY));
-    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_2,
-    roundf((float)gSystemClock/PWM_FREQUENCY*0.4f));
-    PWMOutputState(PWM0_BASE, PWM_OUT_2_BIT, true);
-    PWMGenEnable(PWM0_BASE, PWM_GEN_1);
 
     uint32_t time;  // local copy of gTime
     char str[50];   // string buffer
     // full-screen rectangle
     tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
 
+    signal_init();
     ButtonInit();
     ADCInit();
     IntMasterEnable();
