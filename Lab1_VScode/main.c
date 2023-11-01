@@ -24,6 +24,7 @@
 #define PWM_FREQUENCY 20000 // PWM frequency = 20 kHz
 
 #include "buttons.h"
+#include "sampling.h"
 
 uint32_t gSystemClock; // [Hz] system clock frequency
 volatile uint32_t gTime = 8345; // time in hundredths of a second
@@ -74,6 +75,7 @@ int main(void)
     tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
 
     ButtonInit();
+    ADCInit();
     IntMasterEnable();
 
     while (true) {
