@@ -77,18 +77,44 @@ int main(void)
     while (true) {
         GrContextForegroundSet(&sContext, ClrBlack);
         GrRectFill(&sContext, &rectFullScreen); // fill screen with black
-        time = gTime; // read shared global only once
+        GrContextForegroundSet(&sContext, ClrBlue);
+        uint32_t pixels_per_div = 18;
+        uint32_t offset = 9;
+        GrLineDrawH(&sContext, 0, 260, offset);
+        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div);
+        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*2);
+        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 260, offset-1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 260, offset+1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*4);
+        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*5);
+        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*6);
+        GrLineDrawV(&sContext, offset, 0, 260);
+        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 260);
+        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 260);
+        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 260);
+        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 260);
+        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 260);
+        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 260);
+        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 260);
+        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 260);
 
 
-//        snprintf(str, sizeof(str), "Time = %06u", time); // convert time to string
-        uint32_t time_m = (time / 100) / 60 % 60;
-        uint32_t time_s = time/100 % 60;
-        uint32_t time_ff = time - ((time_m*60 + time_s)*100);
 
-        snprintf(str, sizeof(str), "Time = %02u:%02u:%02u", time_m, time_s, time_ff);
 
-        GrContextForegroundSet(&sContext, ClrYellow); // yellow text
-        GrStringDraw(&sContext, str, /*length*/ -1, /*x*/ 0, /*y*/ 0, /*opaque*/ false);
+
+//        time = gTime; // read shared global only once
+////        snprintf(str, sizeof(str), "Time = %06u", time); // convert time to string
+//        uint32_t time_m = (time / 100) / 60 % 60;
+//        uint32_t time_s = time/100 % 60;
+//        uint32_t time_ff = time - ((time_m*60 + time_s)*100);
+//
+//        snprintf(str, sizeof(str), "Time = %02u:%02u:%02u", time_m, time_s, time_ff);
+//
+//        GrContextForegroundSet(&sContext, ClrYellow); // yellow text
+//        GrStringDraw(&sContext, str, /*length*/ -1, /*x*/ 0, /*y*/ 0, /*opaque*/ false);
+
+
         GrFlush(&sContext); // flush the frame buffer to the LCD
     }
 }
