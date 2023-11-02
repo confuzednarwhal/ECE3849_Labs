@@ -95,27 +95,27 @@ void ButtonInit(void)
 // update the debounced button state gButtons
 void ButtonDebounce(uint32_t buttons)
 {
-	int32_t i, mask;
-	static int32_t state[BUTTON_COUNT]; // button state: 0 = released
-									    // BUTTON_PRESSED_STATE = pressed
-									    // in between = previous state
-	for (i = 0; i < BUTTON_COUNT; i++) {
-		mask = 1 << i;
-		if (buttons & mask) {
-			state[i] += BUTTON_STATE_INCREMENT;
-			if (state[i] >= BUTTON_PRESSED_STATE) {
-				state[i] = BUTTON_PRESSED_STATE;
-				gButtons |= mask; // update debounced button state
-			}
-		}
-		else {
-			state[i] -= BUTTON_STATE_DECREMENT;
-			if (state[i] <= 0) {
-				state[i] = 0;
-				gButtons &= ~mask;
-			}
-		}
-	}
+    int32_t i, mask;
+    static int32_t state[BUTTON_COUNT]; // button state: 0 = released
+                                        // BUTTON_PRESSED_STATE = pressed
+                                        // in between = previous state
+    for (i = 0; i < BUTTON_COUNT; i++) {
+        mask = 1 << i;
+        if (buttons & mask) {
+            state[i] += BUTTON_STATE_INCREMENT;
+            if (state[i] >= BUTTON_PRESSED_STATE) {
+                state[i] = BUTTON_PRESSED_STATE;
+                gButtons |= mask; // update debounced button state
+            }
+        }
+        else {
+            state[i] -= BUTTON_STATE_DECREMENT;
+            if (state[i] <= 0) {
+                state[i] = 0;
+                gButtons &= ~mask;
+            }
+        }
+    }
 }
 
 // sample joystick and convert to button presses
@@ -184,18 +184,19 @@ void ButtonISR(void) {
         running = !running;
     }
 
-    if(presses == 2)gTime = 0;
+    if(presses & 2)gTime = 0;
 
-    if(presses == 3) gDisplay = true;
-    else{
-        gDisplay = false;
-    }
+    //gDisplay = false;
+
+    if(presses & 4) gDisplay = true;
+    if(presses & 8) gDisplay = false;
+
 
     if (running) {
         if (tic) gTime++; // increment time every other ISR call
         tic = !tic;
     }
-    
+
 }
 
 

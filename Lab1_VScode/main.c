@@ -27,7 +27,7 @@
 #include "sampling.h"
 
 uint32_t gSystemClock; // [Hz] system clock frequency
-bool gDisplay = false;
+bool gDisplay = true;
 
 volatile uint32_t gTime = 8345; // time in hundredths of a second
 
@@ -85,7 +85,7 @@ int main(void)
         GrRectFill(&sContext, &rectFullScreen); // fill screen with black
         GrContextForegroundSet(&sContext, ClrBlue);
         uint32_t offset = 9;
-       
+
         uint32_t pixels_per_div = 18;
         GrLineDrawH(&sContext, 0, 260, offset);
         GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div);
@@ -105,7 +105,7 @@ int main(void)
         GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 260);
         GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 260);
         GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 260);
-        
+
         if(gDisplay)
         {
             int i = 0;
@@ -114,25 +114,24 @@ int main(void)
             }
 
             GrContextForegroundSet(&sContext, ClrYellow);
-            
             int y = 0;
             for(y = 0; y < 6; y++){
                 if(gCopiedBuffer[y] < 10){
                     // draw to bottom of display
-                    GrLineDrawH(&sContext, offset*y, offset*2*y, offset*6);
+                    GrLineDrawH(&sContext, pixels_per_div*y, pixels_per_div*2*y, offset + pixels_per_div*6);
 
                 }
                 if(gCopiedBuffer[y] > 4086){
                     //draw to top of display
-                    GrLineDrawH(&sContext, offset*y, offset*2*y, offset);
+                    GrLineDrawH(&sContext, pixels_per_div*y, pixels_per_div*2*y, offset);
                 }
             }
 
 
             // display stuff
+            //GrFlush(&sContext);
 
-
-            // gDisplay = false;
+            //gDisplay = false;
         }
 
 
