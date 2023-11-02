@@ -18,6 +18,7 @@
 #include "driverlib/adc.h"
 #include "sysctl_pll.h"
 #include "buttons.h"
+#include "sampling.h"
 
 #include "inc/tm4c1294ncpdt.h"
 
@@ -26,6 +27,8 @@ volatile uint32_t gButtons = 0; // debounced button state, one per bit in the lo
                                 // button is pressed if its bit is 1, not pressed if 0
 uint32_t gJoystick[2] = {0};    // joystick coordinates
 uint32_t gADCSamplingRate;      // [Hz] actual ADC sampling rate
+
+extern bool gDisplay;
 
 // imported globals
 extern uint32_t gSystemClock;   // [Hz] system clock frequency
@@ -183,10 +186,16 @@ void ButtonISR(void) {
 
     if(presses == 2)gTime = 0;
 
+    if(presses == 3) gDisplay = true;
+    else{
+        gDisplay = false;
+    }
+
     if (running) {
         if (tic) gTime++; // increment time every other ISR call
         tic = !tic;
     }
+    
 }
 
 

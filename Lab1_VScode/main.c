@@ -27,7 +27,11 @@
 #include "sampling.h"
 
 uint32_t gSystemClock; // [Hz] system clock frequency
+bool gDisplay = false;
+
 volatile uint32_t gTime = 8345; // time in hundredths of a second
+
+volatile uint16_t gCopiedBuffer[128];
 
 int signal_init(void){
     // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
@@ -45,6 +49,7 @@ int signal_init(void){
     PWMOutputState(PWM0_BASE, PWM_OUT_2_BIT, true);
     PWMGenEnable(PWM0_BASE, PWM_GEN_1);
 }
+
 
 int main(void)
 {
@@ -64,6 +69,7 @@ int main(void)
     GrContextInit(&sContext, &g_sCrystalfontz128x128); // Initialize the grlib graphics context
     GrContextFontSet(&sContext, &g_sFontFixed6x8); // select font
 
+
     uint32_t time;  // local copy of gTime
     char str[50];   // string buffer
     // full-screen rectangle
@@ -78,8 +84,9 @@ int main(void)
         GrContextForegroundSet(&sContext, ClrBlack);
         GrRectFill(&sContext, &rectFullScreen); // fill screen with black
         GrContextForegroundSet(&sContext, ClrBlue);
-        uint32_t pixels_per_div = 18;
         uint32_t offset = 9;
+       
+        uint32_t pixels_per_div = 18;
         GrLineDrawH(&sContext, 0, 260, offset);
         GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div);
         GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*2);
@@ -98,9 +105,35 @@ int main(void)
         GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 260);
         GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 260);
         GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 260);
+        
+        if(gDisplay)
+        {
+            int i = 0;
+            for(i = 0; i < 128; i++){
+                gCopiedBuffer[i] = gADCBuffer[i];
+            }
+
+            GrContextForegroundSet(&sContext, ClrYellow);
+            
+            int y = 0;
+            for(y = 0; y < 6; y++){
+                if(gCopiedBuffer[y] < 10){
+                    // draw to bottom of display
+                    GrLineDrawH(&sContext, offset*y, offset*2*y, offset*6);
+
+                }
+                if(gCopiedBuffer[y] > 4086){
+                    //draw to top of display
+                    GrLineDrawH(&sContext, offset*y, offset*2*y, offset);
+                }
+            }
 
 
+            // display stuff
 
+
+            // gDisplay = false;
+        }
 
 
 //        time = gTime; // read shared global only once

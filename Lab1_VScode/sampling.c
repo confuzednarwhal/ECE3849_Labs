@@ -16,6 +16,8 @@
 // public globals
 uint32_t gADCSamplingRate;      // [Hz] actual ADC sampling rate
 
+
+
 // imported globals
 extern uint32_t gSystemClock;   // [Hz] system clock frequency
 extern volatile uint32_t gTime; // time in hundredths of a second
