@@ -28,7 +28,7 @@ volatile uint32_t gButtons = 0; // debounced button state, one per bit in the lo
 uint32_t gJoystick[2] = {0};    // joystick coordinates
 uint32_t gADCSamplingRate;      // [Hz] actual ADC sampling rate
 
-extern bool gDisplay;
+extern bool gS1;
 
 // imported globals
 extern uint32_t gSystemClock;   // [Hz] system clock frequency
@@ -186,10 +186,7 @@ void ButtonISR(void) {
 
     if(presses & 2)gTime = 0;
 
-    //gDisplay = false;
-
-    if(presses & 4) gDisplay = true;
-    if(presses & 8) gDisplay = false;
+    if(presses & 4) gS1 = true;  //S1 button
 
 
     if (running) {

@@ -12,10 +12,10 @@
 
 #include <stdint.h>
 
-#define BUTTON_COUNT 5				// number of buttons excluding joystick directions
+#define BUTTON_COUNT 5              // number of buttons excluding joystick directions
 #define BUTTON_AND_JOYSTICK_COUNT 9 // number of buttons including joystick directions
-#define BUTTON_SAMPLES_PRESSED 2	// number of samples before a button is considered pressed
-#define BUTTON_SAMPLES_RELEASED 5	// number of samples before a button is considered released
+#define BUTTON_SAMPLES_PRESSED 2    // number of samples before a button is considered pressed
+#define BUTTON_SAMPLES_RELEASED 5   // number of samples before a button is considered released
 // counter value indicating button pressed state
 #define BUTTON_PRESSED_STATE (BUTTON_SAMPLES_RELEASED*BUTTON_SAMPLES_PRESSED)
 #define BUTTON_STATE_INCREMENT (BUTTON_PRESSED_STATE/BUTTON_SAMPLES_PRESSED)
@@ -35,11 +35,11 @@
 #define ADC_SAMPLING_RATE 1000000   // [samples/sec] desired ADC sampling rate
 #define CRYSTAL_FREQUENCY 25000000  // [Hz] crystal oscillator frequency used to calculate clock rates
 
-extern volatile uint32_t gButtons;	// debounced button state, one per bit in the lowest bits
+extern volatile uint32_t gButtons;  // debounced button state, one per bit in the lowest bits
 extern uint32_t gJoystick[2];       // joystick coordinates
 extern uint32_t gADCSamplingRate;   // [Hz] actual ADC sampling rate
 
-extern bool gDisplay;
+extern bool gS1;
 
 // initialize all button and joystick handling hardware
 void ButtonInit(void);

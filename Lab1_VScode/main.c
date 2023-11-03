@@ -27,7 +27,7 @@
 #include "sampling.h"
 
 uint32_t gSystemClock; // [Hz] system clock frequency
-bool gDisplay = true;
+bool gS1 = false;
 
 volatile uint32_t gTime = 8345; // time in hundredths of a second
 
@@ -83,58 +83,63 @@ int main(void)
     while (true) {
         GrContextForegroundSet(&sContext, ClrBlack);
         GrRectFill(&sContext, &rectFullScreen); // fill screen with black
+
+        //draws grid on screen
         GrContextForegroundSet(&sContext, ClrBlue);
-        uint32_t offset = 9;
+        uint8_t offset = 9;
+        uint8_t pixels_per_div = 18;
+        GrLineDrawH(&sContext, 0, 128, offset);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*2);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset-1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset+1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*4);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*5);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*6);
+        GrLineDrawV(&sContext, offset, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
 
-        uint32_t pixels_per_div = 18;
-        GrLineDrawH(&sContext, 0, 260, offset);
-        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div);
-        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*2);
-        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 260, offset-1+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 260, offset+1+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*4);
-        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*5);
-        GrLineDrawH(&sContext, 0, 260, offset+pixels_per_div*6);
-        GrLineDrawV(&sContext, offset, 0, 260);
-        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 260);
-        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 260);
-        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 260);
-        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 260);
-        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 260);
-        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 260);
-        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 260);
-        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 260);
-
-        if(gDisplay)
+        //get the first 128 values from the ADC buffer when S1 is pressed
+        if(gS1)
         {
             int i = 0;
             for(i = 0; i < 128; i++){
                 gCopiedBuffer[i] = gADCBuffer[i];
             }
-
-            GrContextForegroundSet(&sContext, ClrYellow);
-            int y = 0;
-            for(y = 0; y < 6; y++){
-                if(gCopiedBuffer[y] < 10){
-                    // draw to bottom of display
-                    GrLineDrawH(&sContext, pixels_per_div*y, pixels_per_div*2*y, offset + pixels_per_div*6);
-
-                }
-                if(gCopiedBuffer[y] > 4086){
-                    //draw to top of display
-                    GrLineDrawH(&sContext, pixels_per_div*y, pixels_per_div*2*y, offset);
-                }
-            }
-
-
-            // display stuff
-            //GrFlush(&sContext);
-
-            //gDisplay = false;
+            gS1 = false;
         }
 
+        GrContextForegroundSet(&sContext, ClrYellow);
 
+        //for 128 samples and 128 pixels across so each sample is one pixel
+        uint16_t high = 4086;
+        uint8_t low = 10;
+        int y = 0;
+        for(y = 0; y < 128; y++){
+            if(gCopiedBuffer[y] < low){
+                // draw to bottom of display
+                GrLineDrawH(&sContext, offset+y, offset+1+y, offset + pixels_per_div*6);
+
+            }
+            if(gCopiedBuffer[y] < low & gCopiedBuffer[y+1] > high | gCopiedBuffer[y+1] < low & gCopiedBuffer[y] > high){
+                //draw vert line
+                GrLineDraw(&sContext, offset+y+1, offset+pixels_per_div*6, offset+y+1, offset);
+            }
+            if(gCopiedBuffer[y] > high){
+                //draw to top of display
+                GrLineDrawH(&sContext, offset+y, offset+1+y, offset);
+            }
+        }
+
+//previous timer code
 //        time = gTime; // read shared global only once
 ////        snprintf(str, sizeof(str), "Time = %06u", time); // convert time to string
 //        uint32_t time_m = (time / 100) / 60 % 60;

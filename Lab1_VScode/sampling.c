@@ -34,15 +34,6 @@ volatile uint32_t gADCErrors = 0; // number of missed ADC deadlines
 // initialize ADC
 void ADCInit(void)
 {
-     // initialize a general purpose timer for periodic interrupts
-    // SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
-    // TimerDisable(TIMER0_BASE, TIMER_BOTH);
-    // TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
-    // TimerLoadSet(TIMER0_BASE, TIMER_A, roundf((float)gSystemClock / ADC_SAMPLING_RATE) - 1);
-    // TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
-    // TimerEnable(TIMER0_BASE, TIMER_BOTH);
-
-
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
     GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_0); // GPIO setup for analog input AIN3
     // initialize ADC peripherals
@@ -67,17 +58,11 @@ void ADCInit(void)
     IntPrioritySet(INT_ADC1SS0, 0); // set ADC1 sequence 0 interrupt priority
     // enable ADC1 sequence 0 interrupt in int. controller
     IntEnable(INT_ADC1SS0);
-
-    //IntPrioritySet(INT_TIMER0A, BUTTON_INT_PRIORITY);
-    //IntEnable(INT_TIMER0A);
 }
 
 
 void ADC_ISR(void)
 {
-    // clear ADC1 sequence0 interrupt flag in the ADCISC register
-        //sequence interrupts are cleared by writing 1 to the corresponding in bit
-    //ADC1_ADCISC_R = ADC_ADCISC_IN0 & ~1;   //not sure about this one
     ADC1_ISC_R = ADC_ISC_IN0 & 1;
     // check for ADC FIFO overflow
     if(ADC1_OSTAT_R & ADC_OSTAT_OV0) {
