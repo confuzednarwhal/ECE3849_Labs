@@ -41,6 +41,8 @@ extern uint32_t gADCSamplingRate;   // [Hz] actual ADC sampling rate
 
 extern bool gS1;
 
+typedef char DataType;
+
 // initialize all button and joystick handling hardware
 void ButtonInit(void);
 
@@ -53,5 +55,7 @@ void ButtonReadJoystick(void);
 
 // autorepeat button presses if a button is held long enough
 uint32_t ButtonAutoRepeat(void);
+
+int fifo_get(DataType *data);
 
 #endif /* BUTTONS_H_ */
