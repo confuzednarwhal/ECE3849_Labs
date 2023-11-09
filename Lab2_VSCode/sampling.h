@@ -10,7 +10,7 @@ extern volatile uint32_t gButtons;  // debounced button state, one per bit in th
 extern uint32_t gADCSamplingRate;   // [Hz] actual ADC sampling rate
 
 volatile uint16_t gADCBuffer[]; // circular buffer
-volatile int32_t gADCBufferIndex;
+extern volatile int32_t gADCBufferIndex;
 
 void ADCInit(void);
 
