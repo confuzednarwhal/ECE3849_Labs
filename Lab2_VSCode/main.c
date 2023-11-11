@@ -37,6 +37,15 @@ volatile uint32_t gTime = 8345; // time in hundredths of a second
 volatile uint16_t gADCBuffer[];
 volatile uint16_t gCopiedBuffer[128];
 
+volatile uint32_t triggerIndex;
+
+const char *gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
+char currVoltageScaleStr[] = gVoltageScaleStr[0];
+
+int currVoltageScaleInt = 0;
+int ADC_scaled_values[];
+bool firstRun = true;
+
 uint32_t buttonPressed;
 
 int signal_init(void){
@@ -59,7 +68,7 @@ int signal_init(void){
 int RisingTrigger(void) // search for rising edge trigger
 {
     // Step 1
-    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);
+    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
     // Step 2
     int x_stop = x - ADC_BUFFER_SIZE/2;
     for (; x > x_stop; x--) {
@@ -73,6 +82,42 @@ int RisingTrigger(void) // search for rising edge trigger
     return x;
 }
 
+int FallingTrigger(void) // search for rising edge trigger
+{
+    // Step 1
+    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
+    // Step 2
+    int x_stop = x - ADC_BUFFER_SIZE/2;
+    for (; x > x_stop; x--) {
+        if ( gADCBuffer[ADC_BUFFER_WRAP(x)] <= ADC_OFFSET && gADCBuffer[ADC_BUFFER_WRAP(x) - 1] > ADC_OFFSET)
+        break;
+    }
+    // Step 3
+    if (x == x_stop){ // for loop ran to the end
+        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
+    }
+    return x;
+}
+
+int scaleVoltageValues(){
+    float fScale = (3.3 * 20)/((1 << 12) * atoi(currVoltageScaleStr));
+
+    int a;
+    for(a = 0; a < 128; a++){
+        ADC_scaled_values[a] = Lcd_ScreenHeigth/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - ADC_OFFSET));
+    }
+}
+
+char updateVoltageScale(){
+    if(currVoltageScaleInt == 4){
+        currVoltageScaleStr = gVoltageScaleStr[0];
+        currVoltageScaleInt = 0;
+    }else{
+        currVoltageScaleStr = gVoltageScaleStr[currVoltageScaleInt];
+        currVoltageScaleInt++;
+    }
+    scaleVoltageValues();
+}
 
 int main(void)
 {
@@ -101,9 +146,11 @@ int main(void)
     signal_init();
     ButtonInit();
     ADCInit();
+
     IntMasterEnable();
 
     while (true) {
+
         GrContextForegroundSet(&sContext, ClrBlack);
         GrRectFill(&sContext, &rectFullScreen); // fill screen with black
 
@@ -135,12 +182,44 @@ int main(void)
         //get the first 128 values from the ADC buffer when S1 is pressed
         if(buttonPressed & 4)
         {
-            int i = 0;
-            for(i = 0; i < 128; i++){
-                gCopiedBuffer[i] = gADCBuffer[i];
+            //previous code for copying into buffer
+            // int i = 0;
+            // for(i = 0; i < 128; i++){
+            //     gCopiedBuffer[i] = gADCBuffer[i];
+            // }
+
+            triggerIndex = RisingTrigger();
+
+            int a;
+            for(a = 64; a>0; a--){
+                //last 64 samples
+                gCopiedBuffer[63+a] = gADCBuffer[triggerIndex+a];
             }
-            //gS1 = false;
+            int b;
+            for(b = 0; b<64; b++){
+                //first 64 samples
+                gCopiedBuffer[b] = gADCBuffer[triggerIndex+b];
+            }
+
+            scaleVoltageValues();
         }
+
+        if(buttonPressed & 8){
+            triggerIndex = FallingTrigger();
+
+            int a;
+            for(a = 64; a>0; a--){
+                //last 64 samples
+                gCopiedBuffer[63+a] = gADCBuffer[triggerIndex+a];
+            }
+            int b;
+            for(b = 0; b<64; b++){
+                //first 64 samples
+                gCopiedBuffer[b] = gADCBuffer[triggerIndex+b];
+            }
+        }
+
+        if(buttonPressed & 2) updateVoltageScale();
 
         GrContextForegroundSet(&sContext, ClrYellow);
 
@@ -163,18 +242,6 @@ int main(void)
                 GrLineDrawH(&sContext, offset+y, offset+1+y, offset);
             }
         }
-
-//previous timer code
-//        time = gTime; // read shared global only once
-////        snprintf(str, sizeof(str), "Time = %06u", time); // convert time to string
-//        uint32_t time_m = (time / 100) / 60 % 60;
-//        uint32_t time_s = time/100 % 60;
-//        uint32_t time_ff = time - ((time_m*60 + time_s)*100);
-//
-//        snprintf(str, sizeof(str), "Time = %02u:%02u:%02u", time_m, time_s, time_ff);
-//
-//        GrContextForegroundSet(&sContext, ClrYellow); // yellow text
-//        GrStringDraw(&sContext, str, /*length*/ -1, /*x*/ 0, /*y*/ 0, /*opaque*/ false);
 
 
         GrFlush(&sContext); // flush the frame buffer to the LCD
