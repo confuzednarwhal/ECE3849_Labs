@@ -23,6 +23,7 @@
 #include "driverlib/pin_map.h"
 #define PWM_FREQUENCY 20000 // PWM frequency = 20 kHz
 #define ADC_BUFFER_SIZE 2048
+#define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
 #define ADC_OFFSET 2048
 
 #include "buttons.h"
@@ -39,11 +40,10 @@ volatile uint16_t gCopiedBuffer[128];
 
 volatile uint32_t triggerIndex;
 
-const char *gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
-char currVoltageScaleStr[] = gVoltageScaleStr[0];
+const char * const gVoltageScaleStr[5] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
 
 int currVoltageScaleInt = 0;
-int ADC_scaled_values[];
+int ADC_scaled_values[128];
 bool firstRun = true;
 
 uint32_t buttonPressed;
@@ -100,7 +100,7 @@ int FallingTrigger(void) // search for rising edge trigger
 }
 
 int scaleVoltageValues(){
-    float fScale = (3.3 * 20)/((1 << 12) * atoi(currVoltageScaleStr));
+    float fScale = (3.3 * 20)/((1 << 12) * atoi(*gVoltageScaleStr[currVoltageScaleInt]));
 
     int a;
     for(a = 0; a < 128; a++){
@@ -110,10 +110,8 @@ int scaleVoltageValues(){
 
 char updateVoltageScale(){
     if(currVoltageScaleInt == 4){
-        currVoltageScaleStr = gVoltageScaleStr[0];
         currVoltageScaleInt = 0;
     }else{
-        currVoltageScaleStr = gVoltageScaleStr[currVoltageScaleInt];
         currVoltageScaleInt++;
     }
     scaleVoltageValues();
@@ -179,15 +177,11 @@ int main(void)
 
         while(!fifo_get(&buttonPressed));
 
+//        scaleVoltageValues();
+
         //get the first 128 values from the ADC buffer when S1 is pressed
         if(buttonPressed & 4)
         {
-            //previous code for copying into buffer
-            // int i = 0;
-            // for(i = 0; i < 128; i++){
-            //     gCopiedBuffer[i] = gADCBuffer[i];
-            // }
-
             triggerIndex = RisingTrigger();
 
             int a;
@@ -217,6 +211,8 @@ int main(void)
                 //first 64 samples
                 gCopiedBuffer[b] = gADCBuffer[triggerIndex+b];
             }
+
+            scaleVoltageValues();
         }
 
         if(buttonPressed & 2) updateVoltageScale();
@@ -228,16 +224,16 @@ int main(void)
         uint8_t low = 10;
         int y = 0;
         for(y = 0; y < 128; y++){
-            if(gCopiedBuffer[y] < low){
+            if(ADC_scaled_values[y] < low){
                 // draw to bottom of display
                 GrLineDrawH(&sContext, offset+y, offset+1+y, offset + pixels_per_div*6);
 
             }
-            if(gCopiedBuffer[y] < low & gCopiedBuffer[y+1] > high | gCopiedBuffer[y+1] < low & gCopiedBuffer[y] > high){
+            if(ADC_scaled_values[y] < low & ADC_scaled_values[y+1] > high | ADC_scaled_values[y+1] < low & ADC_scaled_values[y] > high){
                 //draw vert line
                 GrLineDraw(&sContext, offset+y+1, offset+pixels_per_div*6, offset+y+1, offset);
             }
-            if(gCopiedBuffer[y] > high){
+            if(ADC_scaled_values[y] > high){
                 //draw to top of display
                 GrLineDrawH(&sContext, offset+y, offset+1+y, offset);
             }
