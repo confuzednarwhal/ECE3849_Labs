@@ -39,16 +39,20 @@ volatile uint16_t gADCBuffer[];
 volatile uint16_t gCopiedBuffer[128];
 
 volatile uint32_t triggerIndex;
+uint32_t buttonPressed;
 
 const char * const gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
+volatile int currVoltageScaleInt = 0;
+volatile int ADC_scaled_values[128];
 
-int currVoltageScaleInt = 0;
-int ADC_scaled_values[128];
-bool firstRun = true;
 
-float fScale;
+// CPU load counters
+uint32_t count_unloaded = 0;
+uint32_t count_loaded = 0;
+float cpu_load = 0.0;
 
-uint32_t buttonPressed;
+#pragma FUNC_CANNOT_INLINE(cpu_load_count)
+uint32_t cpu_load_count(void);
 
 void signal_init(void){
     // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
@@ -109,7 +113,7 @@ void scaleVoltageValues(){
         Vmultiplyer = 1.0;
     }
 
-    fScale = (3.3 * 20)/((1 << 12) * (atoi(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+    float fScale = (3.3 * 20)/((1 << 12) * (atoi(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
 
     int a;
     for(a = 0; a < 128; a++){
@@ -124,6 +128,16 @@ void updateVoltageScale(){
         currVoltageScaleInt++;
     }
     scaleVoltageValues();
+}
+
+uint32_t cpu_load_count(void)
+{
+    uint32_t i = 0;
+    TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
+    TimerEnable(TIMER3_BASE, TIMER_A); // start one-shot timer
+    while (!(TimerIntStatus(TIMER3_BASE, false) & TIMER_TIMA_TIMEOUT))
+        i++;
+    return i;
 }
 
 int main(void)
@@ -153,6 +167,14 @@ int main(void)
     signal_init();
     ButtonInit();
     ADCInit();
+
+    // initialize timer 3 in one-shot mode for polled timing
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
+    TimerDisable(TIMER3_BASE, TIMER_BOTH);
+    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
+    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 1); // 1 sec interval
+
+    count_unloaded = cpu_load_count();
 
     IntMasterEnable();
 
@@ -246,7 +268,10 @@ int main(void)
             }
         }
 
-
         GrFlush(&sContext); // flush the frame buffer to the LCD
+
+
+        count_loaded = cpu_load_count();
+        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
     }
 }
