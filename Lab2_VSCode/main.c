@@ -40,15 +40,17 @@ volatile uint16_t gCopiedBuffer[128];
 
 volatile uint32_t triggerIndex;
 
-const char * const gVoltageScaleStr[5] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
+const char * const gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
 
 int currVoltageScaleInt = 0;
 int ADC_scaled_values[128];
 bool firstRun = true;
 
+float fScale;
+
 uint32_t buttonPressed;
 
-int signal_init(void){
+void signal_init(void){
     // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
     GPIOPinTypePWM(GPIO_PORTF_BASE, GPIO_PIN_2);
@@ -99,8 +101,15 @@ int FallingTrigger(void) // search for rising edge trigger
     return x;
 }
 
-int scaleVoltageValues(){
-    float fScale = (3.3 * 20)/((1 << 12) * atoi(*gVoltageScaleStr[currVoltageScaleInt]));
+void scaleVoltageValues(){
+    float Vmultiplyer;
+    if(currVoltageScaleInt < 3){
+        Vmultiplyer = 0.001;
+    }else{
+        Vmultiplyer = 1.0;
+    }
+
+    fScale = (3.3 * 20)/((1 << 12) * (atoi(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
 
     int a;
     for(a = 0; a < 128; a++){
@@ -108,7 +117,7 @@ int scaleVoltageValues(){
     }
 }
 
-char updateVoltageScale(){
+void updateVoltageScale(){
     if(currVoltageScaleInt == 4){
         currVoltageScaleInt = 0;
     }else{
@@ -176,8 +185,6 @@ int main(void)
         GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
 
         while(!fifo_get(&buttonPressed));
-
-//        scaleVoltageValues();
 
         //get the first 128 values from the ADC buffer when S1 is pressed
         if(buttonPressed & 4)
