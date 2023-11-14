@@ -22,6 +22,7 @@
 #include "driverlib/gpio.h"
 #include "driverlib/pwm.h"
 #include "driverlib/pin_map.h"
+#include "driverlib/timer.h"
 #define PWM_FREQUENCY 20000 // PWM frequency = 20 kHz
 #define ADC_BUFFER_SIZE 2048
 #define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
@@ -43,7 +44,7 @@ volatile uint32_t triggerIndex;
 uint32_t buttonPressed;
 
 const char * const gVoltageScaleStr[] = {"100.0", "200.0", "500.0", " 1.0", "2.0"};
-volatile int currVoltageScaleInt = 3;
+volatile int currVoltageScaleInt = 2;
 volatile int ADC_scaled_values[128];
 
 // CPU load counters
@@ -113,22 +114,12 @@ float getfScaleValue(){
         Vmultiplyer = 1.0;
     }
 
-    float fScale = (3.3 * 18)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-    //float fScale = (3.3 * 20.0)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-    //float trial = atof(gVoltageScaleStr[currVoltageScaleInt])*0.001;
-    //float val = (3.3 * 18)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])));
+    float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
 
     return fScale;
 }
 
 void scaleVoltageValues(){
-//    float Vmultiplyer;
-//    if(currVoltageScaleInt < 3){
-//        Vmultiplyer = 0.001;
-//    }else{
-//        Vmultiplyer = 1.0;
-//    }
-
     float scaleValue = getfScaleValue();
     int a;
     for(a = 0; a < 128; a++){
@@ -136,16 +127,16 @@ void scaleVoltageValues(){
     }
 }
 
-uint16_t getHighValue(){
+uint32_t getLowValue(){
     float scaleValue = getfScaleValue();
-    uint16_t newHValue = scaleValue * 4086;
-    return newHValue;
+    uint32_t newLValue = LCD_VERTICAL_MAX/2 - (int)roundf(scaleValue * ((int)4086 - 2090));
+    return newLValue;
 }
 
-uint8_t getLowValue(){
+uint32_t getHighValue(){
     float scaleValue = getfScaleValue();
-    uint8_t newLValue = scaleValue *10;
-    return newLValue;
+    uint32_t newHValue = LCD_VERTICAL_MAX/2 - (int)roundf(scaleValue * ((int)10 - 2090));
+    return newHValue;
 }
 
 void updateVoltageScale(){
@@ -199,7 +190,7 @@ int main(void)
 //    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
 //    TimerDisable(TIMER3_BASE, TIMER_BOTH);
 //    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
-//    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 1); // 1 sec interval
+//    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 0.001); // 1 sec interval
 
 //    count_unloaded = cpu_load_count();
 
@@ -212,8 +203,8 @@ int main(void)
 
         //draws grid on screen
         GrContextForegroundSet(&sContext, ClrBlue);
-        uint8_t offset = 9;
-        uint8_t pixels_per_div = 18;
+        uint8_t offset = 4;
+        uint8_t pixels_per_div = 20;
         GrLineDrawH(&sContext, 0, 128, offset);
         GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div);
         GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*2);
@@ -235,63 +226,47 @@ int main(void)
 
         while(!fifo_get(&buttonPressed));
 
+        if(buttonPressed & 2) updateVoltageScale();
+
+
         //get the first 128 values from the ADC buffer when S1 is pressed
         if(buttonPressed & 4)
         {
             triggerIndex = RisingTrigger();
 
+            int index;
+            index = triggerIndex - 64;
             int a;
-            for(a = 64; a>0; a--){
-                //last 64 samples
-                gCopiedBuffer[63+a] = gADCBuffer[triggerIndex+a];
-            }
-            int b;
-            for(b = 0; b<64; b++){
-                //first 64 samples
-                gCopiedBuffer[b] = gADCBuffer[triggerIndex+b];
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[index+a];
             }
 
             scaleVoltageValues();
         }
 
         if(buttonPressed & 8){
+
             triggerIndex = FallingTrigger();
 
+            int index;
+            index = triggerIndex - 64;
             int a;
-            for(a = 64; a>0; a--){
-                //last 64 samples
-                gCopiedBuffer[63+a] = gADCBuffer[triggerIndex+a];
-            }
-            int b;
-            for(b = 0; b<64; b++){
-                //first 64 samples
-                gCopiedBuffer[b] = gADCBuffer[triggerIndex+b];
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[index+a];
             }
 
             scaleVoltageValues();
         }
 
-        if(buttonPressed & 2) updateVoltageScale();
-
         GrContextForegroundSet(&sContext, ClrYellow);
-
-        //for 128 samples and 128 pixels across so each sample is one pixel
-        uint16_t high = getHighValue();
-        uint8_t low = getLowValue();
+        uint32_t high = getHighValue();
+        uint32_t low = getLowValue();
         int y = 0;
-        for(y = 0; y < 128; y++){
-            if(ADC_scaled_values[y] < low){
-                // draw to bottom of display
-                GrLineDrawH(&sContext, offset+y, offset+1+y, offset + pixels_per_div*6);
-
-            }
+        for(y = 0; y <128; y++){
+            GrLineDrawH(&sContext, y, y, ADC_scaled_values[y]);
             if(ADC_scaled_values[y] <= low & ADC_scaled_values[y+1] >= high | ADC_scaled_values[y+1] <= low & ADC_scaled_values[y] >= high){
                 //draw vert line
-                GrLineDraw(&sContext, offset+y+1, offset+pixels_per_div*6, offset+y+1, offset);
-            }
-            if(ADC_scaled_values[y] > high){
-                //draw to top of display
-                GrLineDrawH(&sContext, offset+y, offset+1+y, offset);
+                GrLineDraw(&sContext, y+1, ADC_scaled_values[y], y+1, ADC_scaled_values[y+1]);
             }
         }
 
