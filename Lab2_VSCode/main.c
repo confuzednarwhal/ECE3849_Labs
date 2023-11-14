@@ -43,14 +43,18 @@ volatile uint32_t gCopiedBuffer[128];
 volatile uint32_t triggerIndex;
 uint32_t buttonPressed;
 
-const char * const gVoltageScaleStr[] = {"100.0", "200.0", "500.0", " 1.0", "2.0"};
-volatile int currVoltageScaleInt = 2;
+const char * const gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", "2 V"};
+volatile int currVoltageScaleInt = 3;
 volatile int ADC_scaled_values[128];
+
+bool triggerRising = false;
 
 // CPU load counters
 uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
 float cpu_load = 0.0;
+
+
 
 //#pragma FUNC_CANNOT_INLINE(cpu_load_count)
 //uint32_t cpu_load_count(void);
@@ -86,6 +90,7 @@ int RisingTrigger(void) // search for rising edge trigger
     if (x == x_stop){ // for loop ran to the end
         x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
     }
+    triggerRising = true;
     return x;
 }
 
@@ -103,6 +108,7 @@ int FallingTrigger(void) // search for rising edge trigger
     if (x == x_stop){ // for loop ran to the end
         x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
     }
+    triggerRising = false;
     return x;
 }
 
@@ -148,15 +154,15 @@ void updateVoltageScale(){
     scaleVoltageValues();
 }
 
-//uint32_t cpu_load_count(void)
-//{
-//    uint32_t i = 0;
-//    TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
-//    TimerEnable(TIMER3_BASE, TIMER_A); // start one-shot timer
-//    while (!(TimerIntStatus(TIMER3_BASE, false) & TIMER_TIMA_TIMEOUT))
-//        i++;
-//    return i;
-//}
+uint32_t cpu_load_count(void)
+{
+    uint32_t i = 0;
+    TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
+    TimerEnable(TIMER3_BASE, TIMER_A); // start one-shot timer
+    while (!(TimerIntStatus(TIMER3_BASE, false) & TIMER_TIMA_TIMEOUT))
+        i++;
+    return i;
+}
 
 int main(void)
 {
@@ -186,13 +192,13 @@ int main(void)
     ButtonInit();
     ADCInit();
 
-//    // initialize timer 3 in one-shot mode for polled timing
-//    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
-//    TimerDisable(TIMER3_BASE, TIMER_BOTH);
-//    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
-//    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 0.001); // 1 sec interval
+    // initialize timer 3 in one-shot mode for polled timing
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
+    TimerDisable(TIMER3_BASE, TIMER_BOTH);
+    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
+    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 0.001); // 1 sec interval
 
-//    count_unloaded = cpu_load_count();
+    count_unloaded = cpu_load_count();
 
     IntMasterEnable();
 
@@ -263,17 +269,42 @@ int main(void)
         uint32_t low = getLowValue();
         int y = 0;
         for(y = 0; y <128; y++){
-            GrLineDrawH(&sContext, y, y, ADC_scaled_values[y]);
-            if(ADC_scaled_values[y] <= low & ADC_scaled_values[y+1] >= high | ADC_scaled_values[y+1] <= low & ADC_scaled_values[y] >= high){
-                //draw vert line
-                GrLineDraw(&sContext, y+1, ADC_scaled_values[y], y+1, ADC_scaled_values[y+1]);
+            if(y+1 < 128){
+                GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
             }
+
         }
+
+        GrFlush(&sContext);
+
+        if(triggerRising){
+            GrLineDrawV(&sContext, 110, 10, 20);
+            GrLineDrawH(&sContext, 100, 110, 20);
+            GrLineDrawH(&sContext, 110, 120, 10);
+        }
+        else{
+            GrLineDrawV(&sContext, 110, 10, 20);
+            GrLineDrawH(&sContext, 100, 110, 10);
+            GrLineDrawH(&sContext, 110, 120, 20);
+        }
+
+        GrContextForegroundSet(&sContext, ClrWhite);  //white text
+        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
+
+
+        count_loaded = cpu_load_count();
+        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+        cpu_load = cpu_load *100;
+
+        char str[16];
+
+
+        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
+        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
+
 
         GrFlush(&sContext); // flush the frame buffer to the LCD
 
 
-//        count_loaded = cpu_load_count();
-//        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
     }
 }
