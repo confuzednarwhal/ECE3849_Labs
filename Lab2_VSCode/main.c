@@ -15,6 +15,7 @@
 #include "driverlib/interrupt.h"
 #include "Crystalfontz128x128_ST7735.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <math.h>
 #include "inc/hw_memmap.h"
@@ -24,7 +25,7 @@
 #define PWM_FREQUENCY 20000 // PWM frequency = 20 kHz
 #define ADC_BUFFER_SIZE 2048
 #define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
-#define ADC_OFFSET 2048
+#define ADC_OFFSET 2047.0
 
 #include "buttons.h"
 #include "sampling.h"
@@ -36,23 +37,22 @@ bool gS1 = false;
 volatile uint32_t gTime = 8345; // time in hundredths of a second
 // volatile int32_t gADCBufferIndex;
 volatile uint16_t gADCBuffer[];
-volatile uint16_t gCopiedBuffer[128];
+volatile uint32_t gCopiedBuffer[128];
 
 volatile uint32_t triggerIndex;
 uint32_t buttonPressed;
 
-const char * const gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", " 2 V"};
-volatile int currVoltageScaleInt = 0;
+const char * const gVoltageScaleStr[] = {"100.0", "200.0", "500.0", " 1.0", "2.0"};
+volatile int currVoltageScaleInt = 3;
 volatile int ADC_scaled_values[128];
-
 
 // CPU load counters
 uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
 float cpu_load = 0.0;
 
-#pragma FUNC_CANNOT_INLINE(cpu_load_count)
-uint32_t cpu_load_count(void);
+//#pragma FUNC_CANNOT_INLINE(cpu_load_count)
+//uint32_t cpu_load_count(void);
 
 void signal_init(void){
     // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
@@ -105,7 +105,7 @@ int FallingTrigger(void) // search for rising edge trigger
     return x;
 }
 
-void scaleVoltageValues(){
+float getfScaleValue(){
     float Vmultiplyer;
     if(currVoltageScaleInt < 3){
         Vmultiplyer = 0.001;
@@ -113,12 +113,39 @@ void scaleVoltageValues(){
         Vmultiplyer = 1.0;
     }
 
-    float fScale = (3.3 * 20)/((1 << 12) * (atoi(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+    float fScale = (3.3 * 18)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+    //float fScale = (3.3 * 20.0)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+    //float trial = atof(gVoltageScaleStr[currVoltageScaleInt])*0.001;
+    //float val = (3.3 * 18)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])));
 
+    return fScale;
+}
+
+void scaleVoltageValues(){
+//    float Vmultiplyer;
+//    if(currVoltageScaleInt < 3){
+//        Vmultiplyer = 0.001;
+//    }else{
+//        Vmultiplyer = 1.0;
+//    }
+
+    float scaleValue = getfScaleValue();
     int a;
     for(a = 0; a < 128; a++){
-        ADC_scaled_values[a] = Lcd_ScreenHeigth/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - ADC_OFFSET));
+        ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(scaleValue * ((int)gCopiedBuffer[a] - 2090));
     }
+}
+
+uint16_t getHighValue(){
+    float scaleValue = getfScaleValue();
+    uint16_t newHValue = scaleValue * 4086;
+    return newHValue;
+}
+
+uint8_t getLowValue(){
+    float scaleValue = getfScaleValue();
+    uint8_t newLValue = scaleValue *10;
+    return newLValue;
 }
 
 void updateVoltageScale(){
@@ -130,15 +157,15 @@ void updateVoltageScale(){
     scaleVoltageValues();
 }
 
-uint32_t cpu_load_count(void)
-{
-    uint32_t i = 0;
-    TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
-    TimerEnable(TIMER3_BASE, TIMER_A); // start one-shot timer
-    while (!(TimerIntStatus(TIMER3_BASE, false) & TIMER_TIMA_TIMEOUT))
-        i++;
-    return i;
-}
+//uint32_t cpu_load_count(void)
+//{
+//    uint32_t i = 0;
+//    TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
+//    TimerEnable(TIMER3_BASE, TIMER_A); // start one-shot timer
+//    while (!(TimerIntStatus(TIMER3_BASE, false) & TIMER_TIMA_TIMEOUT))
+//        i++;
+//    return i;
+//}
 
 int main(void)
 {
@@ -168,13 +195,13 @@ int main(void)
     ButtonInit();
     ADCInit();
 
-    // initialize timer 3 in one-shot mode for polled timing
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
-    TimerDisable(TIMER3_BASE, TIMER_BOTH);
-    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
-    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 1); // 1 sec interval
+//    // initialize timer 3 in one-shot mode for polled timing
+//    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
+//    TimerDisable(TIMER3_BASE, TIMER_BOTH);
+//    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
+//    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock - 1); // 1 sec interval
 
-    count_unloaded = cpu_load_count();
+//    count_unloaded = cpu_load_count();
 
     IntMasterEnable();
 
@@ -249,8 +276,8 @@ int main(void)
         GrContextForegroundSet(&sContext, ClrYellow);
 
         //for 128 samples and 128 pixels across so each sample is one pixel
-        uint16_t high = 4086;
-        uint8_t low = 10;
+        uint16_t high = getHighValue();
+        uint8_t low = getLowValue();
         int y = 0;
         for(y = 0; y < 128; y++){
             if(ADC_scaled_values[y] < low){
@@ -258,7 +285,7 @@ int main(void)
                 GrLineDrawH(&sContext, offset+y, offset+1+y, offset + pixels_per_div*6);
 
             }
-            if(ADC_scaled_values[y] < low & ADC_scaled_values[y+1] > high | ADC_scaled_values[y+1] < low & ADC_scaled_values[y] > high){
+            if(ADC_scaled_values[y] <= low & ADC_scaled_values[y+1] >= high | ADC_scaled_values[y+1] <= low & ADC_scaled_values[y] >= high){
                 //draw vert line
                 GrLineDraw(&sContext, offset+y+1, offset+pixels_per_div*6, offset+y+1, offset);
             }
@@ -271,7 +298,7 @@ int main(void)
         GrFlush(&sContext); // flush the frame buffer to the LCD
 
 
-        count_loaded = cpu_load_count();
-        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+//        count_loaded = cpu_load_count();
+//        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
     }
 }
