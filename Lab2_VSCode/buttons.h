@@ -37,7 +37,7 @@
 
 extern volatile uint32_t gButtons;  // debounced button state, one per bit in the lowest bits
 extern uint32_t gJoystick[2];       // joystick coordinates
-extern uint32_t gADCSamplingRate;   // [Hz] actual ADC sampling rate
+//extern uint32_t gADCSamplingRate;   // [Hz] actual ADC sampling rate
 
 extern bool gS1;
 

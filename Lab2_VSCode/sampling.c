@@ -23,12 +23,12 @@ extern uint32_t gSystemClock;   // [Hz] system clock frequency
 extern volatile uint32_t gTime; // time in hundredths of a second
 
 //or ADC
-#define ADC_BUFFER_SIZE 2048 // size must be a power of 2
+//#define ADC_BUFFER_SIZE 2048 // size must be a power of 2
 // index wrapping macro
 #define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
 // latest sample index
-volatile int32_t gADCBufferIndex = ADC_BUFFER_SIZE - 1;
-volatile uint16_t gADCBuffer[ADC_BUFFER_SIZE]; // circular buffer
+//extern volatile int32_t gADCBufferIndex = ADC_BUFFER_SIZE - 1;
+//volatile uint32_t gADCBuffer[ADC_BUFFER_SIZE]; // circular buffer
 volatile uint32_t gADCErrors = 0; // number of missed ADC deadlines
 
 // initialize ADC
