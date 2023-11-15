@@ -47,6 +47,8 @@ const char * const gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", "
 volatile int currVoltageScaleInt = 3;
 volatile int ADC_scaled_values[128];
 
+volatile int triggerValue = 0;
+
 bool triggerRising = false;
 
 // CPU load counters
@@ -54,7 +56,15 @@ uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
 float cpu_load = 0.0;
 
+enum STATE
+{
+    handleTrigger,
+    copyBuffer,
+    scale,
+    print,
+};
 
+enum STATE state = handleTrigger;
 
 //#pragma FUNC_CANNOT_INLINE(cpu_load_count)
 //uint32_t cpu_load_count(void);
@@ -230,81 +240,100 @@ int main(void)
         GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 128);
         GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
 
-        while(!fifo_get(&buttonPressed));
+        while(fifo_get(&buttonPressed)){
+                //handle button presses
+                if(buttonPressed & 4){
+                    //rising trigger
+                   triggerValue = 1;
+                }
+                else if(buttonPressed & 8){
+                    //falling trigger
+                    triggerValue = 2;
+                }
+                else if(buttonPressed & 2) updateVoltageScale();
+        }
 
-        if(buttonPressed & 2) updateVoltageScale();
+        int index = 0;
+        switch(state){
+
+            case handleTrigger:
+                //find rising trigger
+                if(triggerValue == 1){
+                    triggerIndex = RisingTrigger();
+                }
+                else if(triggerValue == 2){
+                    triggerIndex = FallingTrigger();
+                }
+                state = copyBuffer;
+
+            case copyBuffer:
+                //copy into buffer
+                if(triggerValue != 0){
+                    index = triggerIndex - 64;
+                    int a;
+                    for(a = 0; a <128; a++){
+                        gCopiedBuffer[a] = gADCBuffer[index+a];
+                    }
+                }
+                else{
+                    int a;
+                    for(a = 0; a <128; a++){
+                        gCopiedBuffer[a] = gADCBuffer[a];
+                    }
+                }
+
+                state = scale;
+
+            case scale:
+                scaleVoltageValues();
+                state = print;
+
+            case print:
+                GrContextForegroundSet(&sContext, ClrYellow);
+                uint32_t high = getHighValue();
+                uint32_t low = getLowValue();
+                int y = 0;
+                for(y = 0; y <128; y++){
+                    if(y+1 < 128){
+                        GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
+                    }
+
+                }
+
+                if(triggerValue == 1){
+                    GrLineDrawV(&sContext, 110, 10, 20);
+                    GrLineDrawH(&sContext, 100, 110, 20);
+                    GrLineDrawH(&sContext, 110, 120, 10);
+                }
+                else if(triggerValue == 2){
+                    GrLineDrawV(&sContext, 110, 10, 20);
+                    GrLineDrawH(&sContext, 100, 110, 10);
+                    GrLineDrawH(&sContext, 110, 120, 20);
+                }
+                else{
+                    GrStringDrawCentered(&sContext, "no trigger", 10, 90, 10, false);
+                }
+
+                GrContextForegroundSet(&sContext, ClrWhite);  //white text
+                GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
 
 
-        //get the first 128 values from the ADC buffer when S1 is pressed
-        if(buttonPressed & 4)
-        {
-            triggerIndex = RisingTrigger();
+                count_loaded = cpu_load_count();
+                cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+                cpu_load = cpu_load *100;
 
-            int index;
-            index = triggerIndex - 64;
-            int a;
-            for(a = 0; a <128; a++){
-                gCopiedBuffer[a] = gADCBuffer[index+a];
+                char str[16];
+
+
+                snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
+                GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
+                state = handleTrigger;
             }
+            GrFlush(&sContext); // flush the frame buffer to the LCD
 
-            scaleVoltageValues();
-        }
 
-        if(buttonPressed & 8){
 
-            triggerIndex = FallingTrigger();
-
-            int index;
-            index = triggerIndex - 64;
-            int a;
-            for(a = 0; a <128; a++){
-                gCopiedBuffer[a] = gADCBuffer[index+a];
-            }
-
-            scaleVoltageValues();
-        }
-
-        GrContextForegroundSet(&sContext, ClrYellow);
-        uint32_t high = getHighValue();
-        uint32_t low = getLowValue();
-        int y = 0;
-        for(y = 0; y <128; y++){
-            if(y+1 < 128){
-                GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
-            }
 
         }
 
-        GrFlush(&sContext);
-
-        if(triggerRising){
-            GrLineDrawV(&sContext, 110, 10, 20);
-            GrLineDrawH(&sContext, 100, 110, 20);
-            GrLineDrawH(&sContext, 110, 120, 10);
-        }
-        else{
-            GrLineDrawV(&sContext, 110, 10, 20);
-            GrLineDrawH(&sContext, 100, 110, 10);
-            GrLineDrawH(&sContext, 110, 120, 20);
-        }
-
-        GrContextForegroundSet(&sContext, ClrWhite);  //white text
-        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
-
-
-        count_loaded = cpu_load_count();
-        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
-        cpu_load = cpu_load *100;
-
-        char str[16];
-
-
-        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
-        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
-
-
-        GrFlush(&sContext); // flush the frame buffer to the LCD
-
-
-    }
 }
