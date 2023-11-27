@@ -11,9 +11,14 @@
 /* BIOS Header files */
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
+#include <ti/sysbios/knl/Semaphore.h>
+#include <ti/sysbios/knl/Mailbox.h>
+
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
+
 #include "driverlib/interrupt.h"
 #include "driverlib/fpu.h"
 #include "driverlib/sysctl.h"
@@ -50,6 +55,8 @@ volatile int triggerValue = 0;
 
 bool triggerFound = false;
 
+tContext sContext;
+
 // CPU load counters
 uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
@@ -85,7 +92,7 @@ int main(void)
     Crystalfontz128x128_Init(); // Initialize the LCD display driver
     Crystalfontz128x128_SetOrientation(LCD_ORIENTATION_UP); // set screen orientation
 
-    tContext sContext;
+//    tContext sContext;
     GrContextInit(&sContext, &g_sCrystalfontz128x128); // Initialize the grlib graphics context
     GrContextFontSet(&sContext, &g_sFontFixed6x8); // select font
 
@@ -94,6 +101,7 @@ int main(void)
 
     //PWM signal generator
     signal_init();
+    ADCInit();
 
     /* Start BIOS */
     BIOS_start();
@@ -130,14 +138,14 @@ int main(void)
     return (0);
 }
 
-void task0_func(UArg arg1, UArg arg2)
-{
-    IntMasterEnable();
-
-    while (true) {
-        // do nothing
-    }
-}
+//void enable_func(UArg arg1, UArg arg2)
+//{
+//    IntMasterEnable();
+//
+//    while (true) {
+//        // do nothing
+//    }
+//}
 
 int RisingTrigger(void) // search for rising edge trigger
 {
@@ -178,70 +186,82 @@ int FallingTrigger(void) // search for rising edge trigger
     return x;
 }
 
-void triggerSearch(int triggerValue){
-    Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
-    if(triggerValue == 1){
-        triggerIndex = RisingTrigger();
-        //if no trigger value is found
-        if(triggerFound == false) triggerValue = 0;
-    }
-    //find falling trigger
-    else if(triggerValue == 2){
-        triggerIndex = FallingTrigger();
-        //if no trigger value is found
-        if(triggerFound == false) triggerValue = 0;
-    }
-
-    //copy into buffer
-    //if there is a trigger, copy values to gCopiedBuffer starting from the triggerIndex - 64 (left most pixel of the LCD)
-    else if(triggerValue != 0){
-        int index = 0;
-        index = triggerIndex - 64;
-        int a;
-        for(a = 0; a <128; a++){
-            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+void triggerSearch(void){
+    IntMasterEnable();
+    int triggerValue = 3;
+    while(true){
+        Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
+        if(triggerValue == 1){
+            triggerIndex = RisingTrigger();
+            //if no trigger value is found
+            if(triggerFound == false) triggerValue = 0;
         }
-    }
-    //if there is no trigger found, copy values from ADC to gCopiedBuffer
-    else{
-        int a;
-        for(a = 0; a <128; a++){
-            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+        //find falling trigger
+        else if(triggerValue == 2){
+            triggerIndex = FallingTrigger();
+            //if no trigger value is found
+            if(triggerFound == false) triggerValue = 0;
         }
-    }
 
-    Semaphore_post(processing_sem1);
-    Semaphore_post(display_sem2);
+        //copy into buffer
+        //if there is a trigger, copy values to gCopiedBuffer starting from the triggerIndex - 64 (left most pixel of the LCD)
+        else if(triggerValue != 0){
+            int index = 0;
+            index = triggerIndex - 64;
+            int a;
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+            }
+        }
+        //if there is no trigger found, copy values from ADC to gCopiedBuffer
+        else{
+            int a;
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+            }
+        }
+
+        Semaphore_post(processing_sem1);
+//        Semaphore_post(waveform_sem0);
+    }
 }
 
-void processing(){
-    Semaphore_pend(processing_sem1, BIOS_WAIT_FOREVER);
-    float Vmultiplyer;
-    if(currVoltageScaleInt < 3){
-        Vmultiplyer = 0.001;
-    }else{
-        Vmultiplyer = 1.0;
-    }
-
-    float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-    int a;
-    for(a = 0; a < 128; a++){
-        ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
-    }
-    Semaphore_post(display_sem2);
-    Semaphore_post(waveform_sem0);
-}
-
-void display(){
-    Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
-    tContext sContext;
-    GrContextForegroundSet(&sContext, ClrYellow);
-    int y = 0;
-    for(y = 0; y <128; y++){
-        if(y+1 < 128){
-            GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
+void processing(void){
+//    IntMasterEnable();
+    while(true){
+        Semaphore_pend(processing_sem1, BIOS_WAIT_FOREVER);
+        float Vmultiplyer;
+        if(currVoltageScaleInt < 3){
+            Vmultiplyer = 0.001;
+        }else{
+            Vmultiplyer = 1.0;
         }
 
+        float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+        int a;
+        for(a = 0; a < 128; a++){
+            ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
+        }
+        Semaphore_post(display_sem2);
+//        Semaphore_post(waveform_sem0);
+
+    }
+}
+
+void display(void){
+    while(true){
+        Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
+
+//        tContext sContext;
+        GrContextForegroundSet(&sContext, ClrYellow);
+        int y = 0;
+        for(y = 0; y <128; y++){
+            if(y+1 < 128){
+                GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
+            }
+        }
+        Semaphore_post(waveform_sem0);
+//        Semaphore_post(processing_sem1);
     }
 
 }
