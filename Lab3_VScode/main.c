@@ -56,6 +56,7 @@ volatile int triggerValue = 0;
 bool triggerFound = false;
 
 tContext sContext;
+tRectangle rectFullScreen;
 
 // CPU load counters
 uint32_t count_unloaded = 0;
@@ -92,12 +93,8 @@ int main(void)
     Crystalfontz128x128_Init(); // Initialize the LCD display driver
     Crystalfontz128x128_SetOrientation(LCD_ORIENTATION_UP); // set screen orientation
 
-//    tContext sContext;
     GrContextInit(&sContext, &g_sCrystalfontz128x128); // Initialize the grlib graphics context
     GrContextFontSet(&sContext, &g_sFontFixed6x8); // select font
-
-    tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
-
 
     //PWM signal generator
     signal_init();
@@ -106,46 +103,9 @@ int main(void)
     /* Start BIOS */
     BIOS_start();
 
-    while(true){
-        GrContextForegroundSet(&sContext, ClrBlack);
-        GrRectFill(&sContext, &rectFullScreen); // fill screen with black
-
-        //draws grid on screen
-        GrContextForegroundSet(&sContext, ClrBlue);
-        uint8_t offset = 4;
-        uint8_t pixels_per_div = 20;
-        GrLineDrawH(&sContext, 0, 128, offset);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*2);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 128, offset-1+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 128, offset+1+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*4);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*5);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*6);
-        GrLineDrawV(&sContext, offset, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 128);
-        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 128);
-        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
-
-    }
-
     return (0);
 }
 
-//void enable_func(UArg arg1, UArg arg2)
-//{
-//    IntMasterEnable();
-//
-//    while (true) {
-//        // do nothing
-//    }
-//}
 
 int RisingTrigger(void) // search for rising edge trigger
 {
@@ -188,7 +148,7 @@ int FallingTrigger(void) // search for rising edge trigger
 
 void triggerSearch(void){
     IntMasterEnable();
-    int triggerValue = 3;
+    int triggerValue = 0;
     while(true){
         Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
         if(triggerValue == 1){
@@ -249,10 +209,37 @@ void processing(void){
 }
 
 void display(void){
+
     while(true){
         Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
 
-//        tContext sContext;
+        tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
+        //draws grid on screen
+        GrContextForegroundSet(&sContext, ClrBlack);
+        GrRectFill(&sContext, &rectFullScreen); // fill screen with black
+
+        GrContextForegroundSet(&sContext, ClrBlue);
+        uint8_t offset = 4;
+        uint8_t pixels_per_div = 20;
+        GrLineDrawH(&sContext, 0, 128, offset);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*2);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset-1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset+1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*4);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*5);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*6);
+        GrLineDrawV(&sContext, offset, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
+
         GrContextForegroundSet(&sContext, ClrYellow);
         int y = 0;
         for(y = 0; y <128; y++){
@@ -260,6 +247,7 @@ void display(void){
                 GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
             }
         }
+        GrFlush(&sContext);
         Semaphore_post(waveform_sem0);
 //        Semaphore_post(processing_sem1);
     }
