@@ -98,8 +98,10 @@ int main(void)
 
     //PWM signal generator
     signal_init();
+    ButtonInit();
     ADCInit();
 
+    IntMasterEnable();
     /* Start BIOS */
     BIOS_start();
 
@@ -146,8 +148,10 @@ int FallingTrigger(void) // search for rising edge trigger
     return x;
 }
 
+//highest priority: searches for trigger and copies into a buffer
+//                  signals processing task
 void triggerSearch(void){
-    IntMasterEnable();
+    //IntMasterEnable();
     int triggerValue = 0;
     while(true){
         Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
@@ -168,24 +172,29 @@ void triggerSearch(void){
         else if(triggerValue != 0){
             int index = 0;
             index = triggerIndex - 64;
+
+            IntMasterDisable();
             int a;
             for(a = 0; a <128; a++){
                 gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
             }
+            IntMasterEnable();
         }
         //if there is no trigger found, copy values from ADC to gCopiedBuffer
         else{
+            IntMasterDisable();
             int a;
             for(a = 0; a <128; a++){
                 gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
             }
+            IntMasterEnable();
         }
-
         Semaphore_post(processing_sem1);
-//        Semaphore_post(waveform_sem0);
     }
 }
 
+//lowest priority: scales waveform
+//                 signals display task then waveform task
 void processing(void){
 //    IntMasterEnable();
     while(true){
@@ -198,16 +207,19 @@ void processing(void){
         }
 
         float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+        IntMasterDisable();
         int a;
         for(a = 0; a < 128; a++){
             ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
         }
+        IntMasterEnable();
         Semaphore_post(display_sem2);
-//        Semaphore_post(waveform_sem0);
+        Semaphore_post(waveform_sem0);
 
     }
 }
 
+//low priority: draws one complete frame to LCD display
 void display(void){
 
     while(true){
@@ -241,6 +253,8 @@ void display(void){
         GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
 
         GrContextForegroundSet(&sContext, ClrYellow);
+
+        IntMasterDisable();
         int y = 0;
         for(y = 0; y <128; y++){
             if(y+1 < 128){
@@ -248,8 +262,54 @@ void display(void){
             }
         }
         GrFlush(&sContext);
-        Semaphore_post(waveform_sem0);
-//        Semaphore_post(processing_sem1);
+        IntMasterEnable();
+        //Semaphore_post(waveform_sem0); - original
+
     }
 
+}
+
+//periodic buttons scanning and posts to button_sem3
+void clock_func(){
+        Semaphore_post(button_sem3); //signal button task
+}
+
+//high priority: scans buttons and places ID in to mailbox
+void scan_buttons(){
+    while(true){
+        Semaphore_pend(button_sem3, BIOS_WAIT_FOREVER);
+        while(fifo_get(&buttonPressed)){
+            Mailbox_post(buttonMailbox, &buttonPressed, BIOS_WAIT_FOREVER);
+        }
+    }
+
+}
+
+//mid priority: processes user input from button mailbox
+//              if not button pressed, task remains blocked, waiting on mailbox
+//              signals display task
+void modify_settings(){
+    while(true){
+        Mailbox_pend(buttonMailbox, &buttonPressed,  BIOS_WAIT_FOREVER);
+        //modifies oscilloscope settings
+
+        IntMasterDisable();
+        if(buttonPressed & 4){
+            //rising trigger
+           triggerValue = 1;
+           //Semaphore_post(waveform_sem0);
+        }
+        else if(buttonPressed & 8){
+            //falling trigger
+            triggerValue = 2;
+            //Semaphore_post(waveform_sem0);
+        }
+        //changes the voltage scale
+        else if(buttonPressed & 2){
+            //Semaphore_post(processing_sem1);
+        }
+
+        IntMasterEnable();
+        Semaphore_post(display_sem2); //signal display task
+    }
 }
