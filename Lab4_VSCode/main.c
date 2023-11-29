@@ -33,24 +33,32 @@
 #include "driverlib/pin_map.h"
 #include "driverlib/timer.h"
 
-#define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
-#define ADC_OFFSET 2047.0
-
 #include "buttons.h"
 #include "sampling.h"
 
-uint32_t gSystemClock = 120000000; // [Hz] system clock frequency
+#include "kiss_fft.h"
+#include "_kiss_fft_guts.h"
+
+#define PI 3.14159265358979f
+#define NFFT 1024 // FFT length
+#define KISS_FFT_CFG_SIZE (sizeof(struct kiss_fft_state)+sizeof(kiss_fft_cpx)*(NFFT-1))
+
+#define ADC_BUFFER_WRAP(i) ((i) & (ADC_BUFFER_SIZE - 1))
+#define ADC_OFFSET 2047.0
 
 #define PWM_FREQUENCY 20000 // PWM frequency = 20 kHz
 
-volatile uint32_t gCopiedBuffer[128];
+
+uint32_t gSystemClock = 120000000; // [Hz] system clock frequency
+
+volatile uint32_t gCopiedBuffer[1024];
 
 volatile uint32_t triggerIndex;
 uint32_t buttonPressed;
 
 const char * const gVoltageScaleStr[] = {"100 mV", "200 mV", "500 mV", " 1 V", "2 V"};
 volatile int currVoltageScaleInt = 3;
-volatile int ADC_scaled_values[128];
+volatile int ADC_scaled_values[1024];
 
 volatile int triggerValue = 0;
 
@@ -63,6 +71,9 @@ tRectangle rectFullScreen;
 uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
 float cpu_load = 0.0;
+
+float out_db[128];
+
 
 uint32_t cpu_load_count(void)
 {
@@ -125,202 +136,6 @@ int main(void)
     return (0);
 }
 
-
-int RisingTrigger(void) // search for rising edge trigger
-{
-    // Step 1
-    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
-    // Step 2
-    triggerFound = true;
-    int x_stop = x - ADC_BUFFER_SIZE/2;
-    for (; x > x_stop; x--) {
-        if ( gADCBuffer[ADC_BUFFER_WRAP(x)] >= ADC_OFFSET && gADCBuffer[ADC_BUFFER_WRAP(x) - 1] < ADC_OFFSET)
-
-       break;
-    }
-    // Step 3
-    if (x == x_stop){ // for loop ran to the end
-        triggerFound = false; //no trigger was found
-        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
-    }
-    return x;
-}
-
-int FallingTrigger(void) // search for rising edge trigger
-{
-    // Step 1
-    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
-    // Step 2
-    int x_stop = x - ADC_BUFFER_SIZE/2;
-    triggerFound = true;
-    for (; x > x_stop; x--) {
-        if ( gADCBuffer[ADC_BUFFER_WRAP(x)] <= ADC_OFFSET && gADCBuffer[ADC_BUFFER_WRAP(x) - 1] > ADC_OFFSET)
-        break;
-    }
-    // Step 3
-    if (x == x_stop){ // for loop ran to the end
-        triggerFound = false; //no trigger was found
-        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
-    }
-    return x;
-}
-
-//highest priority: searches for trigger and copies into a buffer
-//                  signals processing task
-void triggerSearch(void){
-    IntMasterEnable();
-    //int triggerValue = 0;
-    while(true){
-        Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
-        if(triggerValue == 1){
-            triggerIndex = RisingTrigger();
-            //if no trigger value is found
-            //if(triggerFound == false) triggerValue = 0;
-                int index = 0;
-                index = triggerIndex - 64;
-
-                int a;
-                for(a = 0; a <128; a++){
-                    gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
-                }
-        }
-
-
-        //find falling trigger
-        if(triggerValue == 2){
-            triggerIndex = FallingTrigger();
-            //if no trigger value is found
-            //if(triggerFound == false) triggerValue = 0;
-        }
-
-        //copy into buffer
-        //if there is a trigger, copy values to gCopiedBuffer starting from the triggerIndex - 64 (left most pixel of the LCD)
-        if(triggerFound){
-
-            int index = 0;
-            index = triggerIndex - 64;
-
-            int a;
-            for(a = 0; a <128; a++){
-                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
-            }
-        }
-        //if there is no trigger found, copy values from ADC to gCopiedBuffer
-        else{
-            triggerFound == false;
-            int a;
-            for(a = 0; a <128; a++){
-                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
-            }
-        }
-        Semaphore_post(processing_sem1);
-    }
-}
-
-//lowest priority: scales waveform
-//                 signals display task then waveform task
-void processing(void){
-//    IntMasterEnable();
-    while(true){
-        Semaphore_pend(processing_sem1, BIOS_WAIT_FOREVER);
-        float Vmultiplyer;
-        if(currVoltageScaleInt < 3){
-            Vmultiplyer = 0.001;
-        }else{
-            Vmultiplyer = 1.0;
-        }
-
-        float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-        int a;
-        for(a = 0; a < 128; a++){
-            ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
-        }
-        Semaphore_post(display_sem2);
-        Semaphore_post(waveform_sem0);
-
-    }
-}
-
-//low priority: draws one complete frame to LCD display
-void display(void){
-
-    while(true){
-        Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
-
-        tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
-        //draws grid on screen
-        GrContextForegroundSet(&sContext, ClrBlack);
-        GrRectFill(&sContext, &rectFullScreen); // fill screen with black
-
-        GrContextForegroundSet(&sContext, ClrBlue);
-        uint8_t offset = 4;
-        uint8_t pixels_per_div = 20;
-        GrLineDrawH(&sContext, 0, 128, offset);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*2);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 128, offset-1+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 128, offset+1+pixels_per_div*3);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*4);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*5);
-        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*6);
-        GrLineDrawV(&sContext, offset, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 128);
-        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 128);
-        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 128);
-        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
-
-        GrContextForegroundSet(&sContext, ClrYellow);
-
-        int y = 0;
-        for(y = 0; y <128; y++){
-            if(y+1 < 128){
-                GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
-            }
-        }
-
-        //indicates rising trigger
-        if(triggerValue == 1){
-            GrLineDrawV(&sContext, 110, 10, 20);
-            GrLineDrawH(&sContext, 100, 110, 20);
-            GrLineDrawH(&sContext, 110, 120, 10);
-        }
-        //indicates falling trigger
-        else if(triggerValue == 2){
-            GrLineDrawV(&sContext, 110, 10, 20);
-            GrLineDrawH(&sContext, 100, 110, 10);
-            GrLineDrawH(&sContext, 110, 120, 20);
-        }
-        //no trigger
-        else{
-            GrStringDrawCentered(&sContext, "no trigger", 10, 90, 10, false);
-        }
-
-        //prints voltage scale
-        GrContextForegroundSet(&sContext, ClrWhite);  //white text
-        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
-
-        //calculates CPU load
-        count_loaded = cpu_load_count();
-        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
-        cpu_load = cpu_load *100;
-
-        char str[16];
-
-        //prints CPU load
-        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
-        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
-
-        GrFlush(&sContext);
-
-    }
-
-}
-
 //periodic buttons scanning and posts to button_sem3
 void clock_func(){
         Semaphore_post(button_sem3); //signal button task
@@ -372,4 +187,169 @@ void modify_settings(){
         }
         Semaphore_post(display_sem2); //signal display task
     }
+}
+
+int RisingTrigger(void) // search for rising edge trigger
+{
+    // Step 1
+    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
+    // Step 2
+    triggerFound = true;
+    int x_stop = x - ADC_BUFFER_SIZE/2;
+    for (; x > x_stop; x--) {
+        if ( gADCBuffer[ADC_BUFFER_WRAP(x)] >= ADC_OFFSET && gADCBuffer[ADC_BUFFER_WRAP(x) - 1] < ADC_OFFSET)
+
+       break;
+    }
+    // Step 3
+    if (x == x_stop){ // for loop ran to the end
+        triggerFound = false; //no trigger was found
+        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
+    }
+    return x;
+}
+
+int FallingTrigger(void) // search for rising edge trigger
+{
+    // Step 1
+    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
+    // Step 2
+    int x_stop = x - ADC_BUFFER_SIZE/2;
+    triggerFound = true;
+    for (; x > x_stop; x--) {
+        if ( gADCBuffer[ADC_BUFFER_WRAP(x)] <= ADC_OFFSET && gADCBuffer[ADC_BUFFER_WRAP(x) - 1] > ADC_OFFSET)
+        break;
+    }
+    // Step 3
+    if (x == x_stop){ // for loop ran to the end
+        triggerFound = false; //no trigger was found
+        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
+    }
+    return x;
+}
+
+//highest priority: searches for trigger and copies into a buffer
+//                  signals processing task
+void triggerSearch(void){
+    IntMasterEnable();
+    //int triggerValue = 0;
+    while(true){
+        Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
+//        int a;
+//        for(a = 0; a <1024; a++){
+//            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+//        }
+        Semaphore_post(processing_sem1);
+    }
+}
+
+//lowest priority: scales waveform
+//                 signals display task then waveform task
+void processing(void){
+    // Kiss FFT config memory
+    static char kiss_fft_cfg_buffer[KISS_FFT_CFG_SIZE];
+    size_t buffer_size = KISS_FFT_CFG_SIZE;
+    kiss_fft_cfg cfg; // Kiss FFT config
+    // complex waveform and spectrum buffers
+    static kiss_fft_cpx in[NFFT], out[NFFT];
+    int i;
+    // init Kiss FFT
+    cfg = kiss_fft_alloc(NFFT, 0, kiss_fft_cfg_buffer, &buffer_size);
+    while(true){
+        Semaphore_pend(processing_sem1, BIOS_WAIT_FOREVER);
+
+        for (i = 0; i < NFFT; i++) { // generate an input waveform
+            in[i].r = sinf(20*PI*i/NFFT); // real part of waveform
+            in[i].i = 0; // imaginary part of waveform
+        }
+        kiss_fft(cfg, in, out); // compute FFT
+
+        // convert first 128 bins of out[] to dB for display
+        int m = 0;
+        for(m = 0; m<128; m++){
+            out_db[m] = -10 * log10f(out[m].r * out[m].r + out[m].i * out[m].i);
+
+        }
+
+//        float Vmultiplyer;
+//        if(currVoltageScaleInt < 3){
+//            Vmultiplyer = 0.001;
+//        }else{
+//            Vmultiplyer = 1.0;
+//        }
+//
+//        float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+//        int a;
+//        for(a = 0; a < 128; a++){
+//            ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
+//        }
+        Semaphore_post(display_sem2);
+        Semaphore_post(waveform_sem0);
+
+    }
+}
+
+//low priority: draws one complete frame to LCD display
+void display(void){
+
+    while(true){
+        Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
+
+        tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
+        //draws grid on screen
+        GrContextForegroundSet(&sContext, ClrBlack);
+        GrRectFill(&sContext, &rectFullScreen); // fill screen with black
+
+        GrContextForegroundSet(&sContext, ClrBlue);
+        uint8_t offset = 4;
+        uint8_t pixels_per_div = 20;
+        GrLineDrawH(&sContext, 0, 128, offset);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*2);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset-1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset+1+pixels_per_div*3);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*4);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*5);
+        GrLineDrawH(&sContext, 0, 128, offset+pixels_per_div*6);
+        GrLineDrawV(&sContext, offset, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*2, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset-1+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset+1+pixels_per_div*3, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*4, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*5, 0, 128);
+        GrLineDrawV(&sContext, offset+pixels_per_div*6, 0, 128);
+
+        GrContextForegroundSet(&sContext, ClrYellow);
+
+        int y = 0;
+        for(y = 0; y <128; y++){
+            if(y+1 < 128){
+                //GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
+                GrLineDrawV(&sContext, y,  out_db[y],  out_db[y+1]);
+            }
+        }
+
+
+        //prints voltage scale
+//        GrContextForegroundSet(&sContext, ClrWhite);  //white text
+//        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
+
+        //calculates CPU load
+//        count_loaded = cpu_load_count();
+//        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+//        cpu_load = cpu_load *100;
+//
+//        char str[16];
+//
+//        //prints CPU load
+//        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
+//        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
+
+        GrFlush(&sContext);
+
+    }
+
 }
