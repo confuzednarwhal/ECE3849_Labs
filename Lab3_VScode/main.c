@@ -62,15 +62,16 @@ tRectangle rectFullScreen;
 // CPU load counters
 uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
-uint32_t cpu_count = 0;
-float cpu_float = 0.0;
+float cpu_load = 0.0;
 
-
-
-void cpu(void)
+uint32_t cpu_load_count(void)
 {
-    cpu_count = 0;
-    cpu_count++;
+    uint32_t i = 0;
+    TimerIntClear(TIMER3_BASE, TIMER_TIMA_TIMEOUT);
+    TimerEnable(TIMER3_BASE, TIMER_A); // start one-shot timer
+    while (!(TimerIntStatus(TIMER3_BASE, false) & TIMER_TIMA_TIMEOUT))
+        i++;
+    return i;
 }
 
 void signal_init(void){
@@ -110,8 +111,13 @@ int main(void)
     ButtonInit();
     ADCInit();
 
-    cpu();
-    count_unloaded = cpu_count;
+    // initialize timer 3 in one-shot mode for polled timing
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
+    TimerDisable(TIMER3_BASE, TIMER_BOTH);
+    TimerConfigure(TIMER3_BASE, TIMER_CFG_ONE_SHOT);
+    TimerLoadSet(TIMER3_BASE, TIMER_A, gSystemClock * 0.001); // 1 sec interval
+
+    count_unloaded = cpu_load_count();
 
     /* Start BIOS */
     BIOS_start();
@@ -169,8 +175,7 @@ void triggerSearch(void){
         if(triggerValue == 1){
             triggerIndex = RisingTrigger();
             //if no trigger value is found
-            if(triggerFound == false) triggerValue = 0;
-            else{
+            //if(triggerFound == false) triggerValue = 0;
                 int index = 0;
                 index = triggerIndex - 64;
 
@@ -178,7 +183,6 @@ void triggerSearch(void){
                 for(a = 0; a <128; a++){
                     gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
                 }
-            }
         }
 
 
@@ -186,7 +190,7 @@ void triggerSearch(void){
         if(triggerValue == 2){
             triggerIndex = FallingTrigger();
             //if no trigger value is found
-            if(triggerFound == false) triggerValue = 0;
+            //if(triggerFound == false) triggerValue = 0;
         }
 
         //copy into buffer
@@ -203,6 +207,7 @@ void triggerSearch(void){
         }
         //if there is no trigger found, copy values from ADC to gCopiedBuffer
         else{
+            triggerFound == false;
             int a;
             for(a = 0; a <128; a++){
                 gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
@@ -240,7 +245,6 @@ void processing(void){
 void display(void){
 
     while(true){
-        cpu_count++;
         Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
 
         tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
@@ -300,18 +304,16 @@ void display(void){
         GrContextForegroundSet(&sContext, ClrWhite);  //white text
         GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
 
-//
-//        //calculates CPU load
-        cpu();
-        count_loaded = cpu_count;
-        cpu_float = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
-        cpu_float = cpu_float *100;
+        //calculates CPU load
+        count_loaded = cpu_load_count();
+        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+        cpu_load = cpu_load *100;
 
-        char st[19];
+        char str[16];
 
         //prints CPU load
-        snprintf(st, 19, "CPU load = %3.2f%%", cpu_float);
-        GrStringDrawCentered(&sContext, st, -1, 60, 120, false);
+        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
+        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
 
         GrFlush(&sContext);
 
