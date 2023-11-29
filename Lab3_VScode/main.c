@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "driverlib/interrupt.h"
 #include "driverlib/fpu.h"
@@ -61,8 +62,16 @@ tRectangle rectFullScreen;
 // CPU load counters
 uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
-float cpu_load = 0.0;
+uint32_t cpu_count = 0;
+float cpu_float = 0.0;
 
+
+
+void cpu(void)
+{
+    cpu_count = 0;
+    cpu_count++;
+}
 
 void signal_init(void){
         // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
@@ -101,7 +110,9 @@ int main(void)
     ButtonInit();
     ADCInit();
 
-    IntMasterEnable();
+    cpu();
+    count_unloaded = cpu_count;
+
     /* Start BIOS */
     BIOS_start();
 
@@ -151,17 +162,28 @@ int FallingTrigger(void) // search for rising edge trigger
 //highest priority: searches for trigger and copies into a buffer
 //                  signals processing task
 void triggerSearch(void){
-    //IntMasterEnable();
-    int triggerValue = 0;
+    IntMasterEnable();
+    //int triggerValue = 0;
     while(true){
         Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
         if(triggerValue == 1){
             triggerIndex = RisingTrigger();
             //if no trigger value is found
             if(triggerFound == false) triggerValue = 0;
+            else{
+                int index = 0;
+                index = triggerIndex - 64;
+
+                int a;
+                for(a = 0; a <128; a++){
+                    gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+                }
+            }
         }
+
+
         //find falling trigger
-        else if(triggerValue == 2){
+        if(triggerValue == 2){
             triggerIndex = FallingTrigger();
             //if no trigger value is found
             if(triggerFound == false) triggerValue = 0;
@@ -169,25 +191,22 @@ void triggerSearch(void){
 
         //copy into buffer
         //if there is a trigger, copy values to gCopiedBuffer starting from the triggerIndex - 64 (left most pixel of the LCD)
-        else if(triggerValue != 0){
+        if(triggerFound){
+
             int index = 0;
             index = triggerIndex - 64;
 
-            IntMasterDisable();
             int a;
             for(a = 0; a <128; a++){
                 gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
             }
-            IntMasterEnable();
         }
         //if there is no trigger found, copy values from ADC to gCopiedBuffer
         else{
-            IntMasterDisable();
             int a;
             for(a = 0; a <128; a++){
                 gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
             }
-            IntMasterEnable();
         }
         Semaphore_post(processing_sem1);
     }
@@ -207,12 +226,10 @@ void processing(void){
         }
 
         float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-        IntMasterDisable();
         int a;
         for(a = 0; a < 128; a++){
             ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
         }
-        IntMasterEnable();
         Semaphore_post(display_sem2);
         Semaphore_post(waveform_sem0);
 
@@ -223,6 +240,7 @@ void processing(void){
 void display(void){
 
     while(true){
+        cpu_count++;
         Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
 
         tRectangle rectFullScreen = {0, 0, GrContextDpyWidthGet(&sContext)-1, GrContextDpyHeightGet(&sContext)-1};
@@ -254,16 +272,48 @@ void display(void){
 
         GrContextForegroundSet(&sContext, ClrYellow);
 
-        IntMasterDisable();
         int y = 0;
         for(y = 0; y <128; y++){
             if(y+1 < 128){
                 GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
             }
         }
+
+        //indicates rising trigger
+        if(triggerValue == 1){
+            GrLineDrawV(&sContext, 110, 10, 20);
+            GrLineDrawH(&sContext, 100, 110, 20);
+            GrLineDrawH(&sContext, 110, 120, 10);
+        }
+        //indicates falling trigger
+        else if(triggerValue == 2){
+            GrLineDrawV(&sContext, 110, 10, 20);
+            GrLineDrawH(&sContext, 100, 110, 10);
+            GrLineDrawH(&sContext, 110, 120, 20);
+        }
+        //no trigger
+        else{
+            GrStringDrawCentered(&sContext, "no trigger", 10, 90, 10, false);
+        }
+
+        //prints voltage scale
+        GrContextForegroundSet(&sContext, ClrWhite);  //white text
+        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
+
+//
+//        //calculates CPU load
+        cpu();
+        count_loaded = cpu_count;
+        cpu_float = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+        cpu_float = cpu_float *100;
+
+        char st[19];
+
+        //prints CPU load
+        snprintf(st, 19, "CPU load = %3.2f%%", cpu_float);
+        GrStringDrawCentered(&sContext, st, -1, 60, 120, false);
+
         GrFlush(&sContext);
-        IntMasterEnable();
-        //Semaphore_post(waveform_sem0); - original
 
     }
 
@@ -278,11 +328,21 @@ void clock_func(){
 void scan_buttons(){
     while(true){
         Semaphore_pend(button_sem3, BIOS_WAIT_FOREVER);
+        ButtonISR();
         while(fifo_get(&buttonPressed)){
             Mailbox_post(buttonMailbox, &buttonPressed, BIOS_WAIT_FOREVER);
         }
     }
 
+}
+
+void updateVoltageScale(){
+    if(currVoltageScaleInt == 4){
+        //creates a wrap
+        currVoltageScaleInt = 0;
+    }else{
+        currVoltageScaleInt++;
+    }
 }
 
 //mid priority: processes user input from button mailbox
@@ -293,7 +353,6 @@ void modify_settings(){
         Mailbox_pend(buttonMailbox, &buttonPressed,  BIOS_WAIT_FOREVER);
         //modifies oscilloscope settings
 
-        IntMasterDisable();
         if(buttonPressed & 4){
             //rising trigger
            triggerValue = 1;
@@ -306,10 +365,9 @@ void modify_settings(){
         }
         //changes the voltage scale
         else if(buttonPressed & 2){
+            updateVoltageScale();
             //Semaphore_post(processing_sem1);
         }
-
-        IntMasterEnable();
         Semaphore_post(display_sem2); //signal display task
     }
 }
