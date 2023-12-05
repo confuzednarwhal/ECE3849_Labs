@@ -73,6 +73,8 @@ uint32_t count_unloaded = 0;
 uint32_t count_loaded = 0;
 float cpu_load = 0.0;
 
+
+bool displayFFT = false;
 float out_db[128];
 
 
@@ -174,17 +176,22 @@ void modify_settings(){
         if(buttonPressed & 4){
             //rising trigger
            triggerValue = 1;
+           displayFFT = false;
            //Semaphore_post(waveform_sem0);
         }
         else if(buttonPressed & 8){
             //falling trigger
             triggerValue = 2;
+            displayFFT = false;
             //Semaphore_post(waveform_sem0);
         }
         //changes the voltage scale
         else if(buttonPressed & 2){
             updateVoltageScale();
             //Semaphore_post(processing_sem1);
+        }
+        else if(buttonPressed & 1){
+            displayFFT = true;
         }
         Semaphore_post(display_sem2); //signal display task
     }
@@ -234,11 +241,48 @@ int FallingTrigger(void) // search for rising edge trigger
 void triggerSearch(void){
     IntMasterEnable();
     //int triggerValue = 0;
+
     while(true){
         Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
-        int a;
-        for(a = 0; a <1024; a++){
-            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+        if(triggerValue == 1 && !displayFFT){
+            triggerIndex = RisingTrigger();
+            //if no trigger value is found
+            //if(triggerFound == false) triggerValue = 0;
+                int index = 0;
+                index = triggerIndex - 64;
+
+                int a;
+                for(a = 0; a <128; a++){
+                    gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+                }
+        }
+
+
+        //find falling trigger
+        if(triggerValue == 2  && !displayFFT){
+            triggerIndex = FallingTrigger();
+            //if no trigger value is found
+            //if(triggerFound == false) triggerValue = 0;
+        }
+
+        //copy into buffer
+        //if there is a trigger, copy values to gCopiedBuffer starting from the triggerIndex - 64 (left most pixel of the LCD)
+        if(triggerFound && !displayFFT){
+
+            int index = 0;
+            index = triggerIndex - 64;
+            int a;
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+            }
+        }
+        //if there is no trigger found, copy values from ADC to gCopiedBuffer
+        else{
+            triggerFound == false;
+            int a;
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+            }
         }
         Semaphore_post(processing_sem1);
     }
@@ -269,27 +313,28 @@ void processing(void){
         // convert first 128 bins of out[] to dB for display
         int z = 0;
         for(z = 0; z<128; z++){
-            out_db[z] = 250 + (-10 * log10f(out[z].r * out[z].r + out[z].i * out[z].i));
+            out_db[z] = (10 * log10f(out[z].r * out[z].r + out[z].i * out[z].i));
 
         }
 
-//        float Vmultiplyer;
-//        if(currVoltageScaleInt < 3){
-//            Vmultiplyer = 0.001;
-//        }else{
-//            Vmultiplyer = 1.0;
-//        }
-//
-//        float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-//        int a;
-//        for(a = 0; a < 128; a++){
-//            ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
-//        }
+        float Vmultiplyer;
+        if(currVoltageScaleInt < 3){
+            Vmultiplyer = 0.001;
+        }else{
+            Vmultiplyer = 1.0;
+        }
+
+        float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
+        int a;
+        for(a = 0; a < 128; a++){
+            ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
+        }
         Semaphore_post(display_sem2);
         Semaphore_post(waveform_sem0);
 
     }
 }
+
 
 //low priority: draws one complete frame to LCD display
 void display(void){
@@ -326,18 +371,27 @@ void display(void){
 
         GrContextForegroundSet(&sContext, ClrYellow);
 
-        int y = 0;
-        for(y = 0; y <128; y++){
-            if(y+1 < 128){
-                //GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
-                GrLineDrawV(&sContext, y,  out_db[y],  out_db[y+1]);
+        if(displayFFT){
+            int y = 0;
+            for(y = 0; y <128; y++){
+                if(y+1 < 128){
+                    GrLineDrawV(&sContext, y,  out_db[y],  out_db[y+1]);
+                }
+            }
+
+        }else{
+            int y = 0;
+            for(y = 0; y <128; y++){
+                if(y+1 < 128){
+                    GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
+                }
             }
         }
 
 
         //prints voltage scale
-//        GrContextForegroundSet(&sContext, ClrWhite);  //white text
-//        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
+        GrContextForegroundSet(&sContext, ClrWhite);  //white text
+        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
 
         //calculates CPU load
         count_loaded = cpu_load_count();
