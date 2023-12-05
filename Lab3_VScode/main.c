@@ -373,3 +373,56 @@ void modify_settings(){
         Semaphore_post(display_sem2); //signal display task
     }
 }
+
+//highest priority
+void waveformTask(){
+    while(true){
+        Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);  
+        /*code*/
+        Semaphore_post(processing_sem1);
+    }
+}
+
+//runs every 5ms
+void clock_func(){
+    Semaphore_post(button_sem3);
+}
+
+//high priority
+void buttonTask(){
+    while(true){
+        Semaphore_pend(button_sem3);
+        /*code*/
+        while(fifo_get(&buttonPressed)){
+            Mailbox_post(buttonMailbox, &buttonPressed, BIOS_WAIT_FOREVER);
+        }
+    }
+}
+
+//mid priority
+void user_inputTask(){
+    while(true){
+        Mailbox_pend(buttonMailbox, &buttonPressed, BIOS_WAIT_FOREVER);
+        /*code*/
+        Semaphore_post(display_sem2);
+    }
+}
+
+//low priority
+void displayTask(){
+    while(true){
+        Semaphore_pend(display_sem2, BIOS_WAIT_FOREVER);
+        /*code*/
+    }
+}
+
+//lowest priority
+void processingTask(){
+    while(true){
+        Semaphore_pend(processing_sem1, BIOS_WAIT_FOREVER);
+        /*code*/
+        Semaphore_post(display_sem2);
+        Semaphore_post(waveform_sem0);
+    }
+}
+

@@ -2,6 +2,7 @@
 #define SAMPLING_H
 
 #include <stdint.h>
+#include "driverlib/udma.h"
 
 #define ADC_SAMPLING_RATE 1000000   // [samples/sec] desired ADC sampling rate
 #define CRYSTAL_FREQUENCY 25000000  // [Hz] crystal oscillator frequency used to calculate clock rates
@@ -18,5 +19,7 @@ volatile int32_t gADCBufferIndex;
 void ADCInit(void);
 
 void ADC_ISR(void);
+
+int32_t getADCBufferIndex(void);
 
 #endif /* SAMPLING_H */

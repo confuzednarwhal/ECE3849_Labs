@@ -39,6 +39,7 @@
 #include "kiss_fft.h"
 #include "_kiss_fft_guts.h"
 
+
 #define PI 3.14159265358979f
 #define NFFT 1024 // FFT length
 #define KISS_FFT_CFG_SIZE (sizeof(struct kiss_fft_state)+sizeof(kiss_fft_cpx)*(NFFT-1))
@@ -192,7 +193,7 @@ void modify_settings(){
 int RisingTrigger(void) // search for rising edge trigger
 {
     // Step 1
-    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
+    int x = getADCBufferIndex() - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
     // Step 2
     triggerFound = true;
     int x_stop = x - ADC_BUFFER_SIZE/2;
@@ -204,7 +205,7 @@ int RisingTrigger(void) // search for rising edge trigger
     // Step 3
     if (x == x_stop){ // for loop ran to the end
         triggerFound = false; //no trigger was found
-        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
+        x = getADCBufferIndex() - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
     }
     return x;
 }
@@ -212,7 +213,7 @@ int RisingTrigger(void) // search for rising edge trigger
 int FallingTrigger(void) // search for rising edge trigger
 {
     // Step 1
-    int x = gADCBufferIndex - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
+    int x = getADCBufferIndex() - (Lcd_ScreenWidth/2);  //gets half way point of data on screen
     // Step 2
     int x_stop = x - ADC_BUFFER_SIZE/2;
     triggerFound = true;
@@ -223,7 +224,7 @@ int FallingTrigger(void) // search for rising edge trigger
     // Step 3
     if (x == x_stop){ // for loop ran to the end
         triggerFound = false; //no trigger was found
-        x = gADCBufferIndex - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
+        x = getADCBufferIndex() - (Lcd_ScreenWidth/2); // reset x back to how it was initialized
     }
     return x;
 }
@@ -235,10 +236,10 @@ void triggerSearch(void){
     //int triggerValue = 0;
     while(true){
         Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
-//        int a;
-//        for(a = 0; a <1024; a++){
-//            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
-//        }
+        int a;
+        for(a = 0; a <1024; a++){
+            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+        }
         Semaphore_post(processing_sem1);
     }
 }
@@ -252,22 +253,23 @@ void processing(void){
     kiss_fft_cfg cfg; // Kiss FFT config
     // complex waveform and spectrum buffers
     static kiss_fft_cpx in[NFFT], out[NFFT];
-    int i;
+   // int i;
     // init Kiss FFT
     cfg = kiss_fft_alloc(NFFT, 0, kiss_fft_cfg_buffer, &buffer_size);
     while(true){
         Semaphore_pend(processing_sem1, BIOS_WAIT_FOREVER);
 
+        int i=0;
         for (i = 0; i < NFFT; i++) { // generate an input waveform
-            in[i].r = sinf(20*PI*i/NFFT); // real part of waveform
+            in[i].r = gCopiedBuffer[i]; // real part of waveform
             in[i].i = 0; // imaginary part of waveform
         }
         kiss_fft(cfg, in, out); // compute FFT
 
         // convert first 128 bins of out[] to dB for display
-        int m = 0;
-        for(m = 0; m<128; m++){
-            out_db[m] = -10 * log10f(out[m].r * out[m].r + out[m].i * out[m].i);
+        int z = 0;
+        for(z = 0; z<128; z++){
+            out_db[z] = 250 + (-10 * log10f(out[z].r * out[z].r + out[z].i * out[z].i));
 
         }
 
@@ -338,15 +340,15 @@ void display(void){
 //        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
 
         //calculates CPU load
-//        count_loaded = cpu_load_count();
-//        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
-//        cpu_load = cpu_load *100;
+        count_loaded = cpu_load_count();
+        cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
+        cpu_load = cpu_load *100;
 //
-//        char str[16];
+        char str[16];
 //
 //        //prints CPU load
-//        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
-//        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
+        snprintf(str, sizeof(str), "CPU load = %03f %", cpu_load);
+        GrStringDrawCentered(&sContext, str, -1, 60, 120, false);
 
         GrFlush(&sContext);
 
