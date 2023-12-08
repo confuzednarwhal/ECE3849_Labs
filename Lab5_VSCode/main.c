@@ -75,7 +75,7 @@ float cpu_load = 0.0;
 
 float out_db[128];
 
-uint32_t period = 0, last_count = 0, frequency;
+volatile uint32_t period = 0, last_count = 0, frequency;
 
 
 uint32_t cpu_load_count(void)
@@ -96,7 +96,7 @@ void signal_init(void){
         GPIOPinConfigure(GPIO_PF2_M0PWM2);
         GPIOPinConfigure(GPIO_PF3_M0PWM3);
         GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_2, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD);
-        GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_3,GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD);
+        GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_3, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD);
         // configure the PWM0 peripheral, gen 1, outputs 2 and 3
         SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
         // use system clock without division
@@ -127,7 +127,7 @@ void freq_timer_init(void){
     TimerEnable(TIMER0_BASE, TIMER_A);
 }
 
-void TimerCaptureISR(void){
+void TimerIntISR(void){
     //clear Timer0A Capture interrupt flag
     TimerIntClear(TIMER0_BASE, TIMER_CAPA_EVENT);
 
@@ -138,7 +138,7 @@ void TimerCaptureISR(void){
 }
 
 uint32_t freq_calc(void){
-    return 1/period;
+    return gSystemClock/period;
 }
 
 
@@ -394,7 +394,7 @@ void display(void){
         //print frequency
         frequency = freq_calc();
         char freqStr[16];
-        snprintf(freqStr, sizeof(freqStr),  "F = %05f % Hz", frequency);
+        snprintf(freqStr, sizeof(freqStr),  "F = %04f% Hz", frequency);
         GrStringDrawCentered(&sContext, freqStr, -1, 60, 100, false);
 
         GrFlush(&sContext);
