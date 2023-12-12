@@ -39,6 +39,9 @@
 #include "kiss_fft.h"
 #include "_kiss_fft_guts.h"
 
+#include "inc/tm4c1294ncpdt.h"
+#include "audio_waveform.h"
+
 
 #define PI 3.14159265358979f
 #define NFFT 1024 // FFT length
@@ -49,8 +52,10 @@
 
 #define PWM_FREQUENCY 20000 // PWM frequency = 20 kHz
 
+uint32_t gPWMSample = 0; // PWM sample counter
+uint32_t gSamplingRateDivider = 20; // sampling rate divider
 
-uint32_t gSystemClock = 120000000; // [Hz] system clock frequency
+float gSystemClock = 120000000.0; // [Hz] system clock frequency
 
 volatile uint32_t gCopiedBuffer[1024];
 
@@ -63,6 +68,7 @@ volatile int ADC_scaled_values[1024];
 
 volatile int triggerValue = 0;
 
+bool displayFFT = false;
 bool triggerFound = false;
 
 tContext sContext;
@@ -74,8 +80,12 @@ uint32_t count_loaded = 0;
 float cpu_load = 0.0;
 
 float out_db[128];
+bool displayFF = false;
 
-volatile uint32_t period = 0, last_count = 0, frequency;
+volatile uint32_t period = 0, last_count = 0, factor = 1;
+float frequency;
+uint32_t audio_period = 258;
+uint32_t PWM_AUDIO_FREQ = 495000;  //[Hz]
 
 
 uint32_t cpu_load_count(void)
@@ -88,7 +98,7 @@ uint32_t cpu_load_count(void)
     return i;
 }
 
-void signal_init(void){
+void signal_init(){
         // configure M0PWM2, at GPIO PF2, BoosterPack 1 header C1 pin 2
         SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
         GPIOPinTypePWM(GPIO_PORTF_BASE, GPIO_PIN_2);
@@ -110,6 +120,41 @@ void signal_init(void){
         PWMGenEnable(PWM0_BASE, PWM_GEN_1);
 }
 
+void PWM_audio_init(){
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOG);
+    GPIOPinTypePWM(GPIO_PORTG_BASE, GPIO_PIN_1);
+    GPIOPinConfigure(GPIO_PG1_M0PWM5);
+    GPIOPadConfigSet(GPIO_PORTG_BASE, GPIO_PIN_1, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD);
+    // configure the PWM0 peripheral, gen 1, outputs 2 and 3
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
+    // use system clock without division
+    PWMClockSet(PWM0_BASE, PWM_SYSCLK_DIV_1);
+    PWMGenConfigure(PWM0_BASE, PWM_GEN_2,PWM_GEN_MODE_DOWN | PWM_GEN_MODE_NO_SYNC);
+    PWMGenPeriodSet(PWM0_BASE, PWM_GEN_2, audio_period);
+    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_5,roundf((float)gSystemClock/AUDIO_SAMPLING_RATE*0.5f));
+    PWMOutputState(PWM0_BASE, PWM_OUT_5_BIT, true);
+    PWMGenEnable(PWM0_BASE, PWM_GEN_2);
+    PWMGenIntTrigEnable(PWM0_BASE, PWM_GEN_2, PWM_INT_CNT_ZERO);
+    //calculated gSamplingRateDivider
+    gSamplingRateDivider = period/AUDIO_SAMPLING_RATE;
+}
+
+void PWM_ISR(void)
+{
+    PWMGenIntClear(PWM0_BASE, PWM_GEN_2, PWM_INT_CNT_ZERO); // clear PWM interrupt flag
+    // waveform sample index
+    int i = (gPWMSample++) / gSamplingRateDivider;
+    // write directly to the PWM compare B register
+    PWM0_2_CMPB_R = 1 + gWaveform[i];
+
+    if (i >= gWaveformSize) { // if at the end of the waveform array
+        // disable these interrupts
+        PWMIntDisable(PWM0_BASE, PWM_INT_GEN_2);
+        // reset sample index so the waveform starts from the beginning
+        gPWMSample = 0;
+    }
+}
+
 void freq_timer_init(void){
     // config GPIO PD0 as timer input T0CCP0 at BoosterPack Connector #1 pin 14
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOD);
@@ -127,6 +172,8 @@ void freq_timer_init(void){
     TimerEnable(TIMER0_BASE, TIMER_A);
 }
 
+
+
 void TimerIntISR(void){
     //clear Timer0A Capture interrupt flag
     TimerIntClear(TIMER0_BASE, TIMER_CAPA_EVENT);
@@ -137,7 +184,7 @@ void TimerIntISR(void){
     last_count = count;
 }
 
-uint32_t freq_calc(void){
+int freq_calc(void){
     return gSystemClock/period;
 }
 
@@ -162,6 +209,7 @@ int main(void)
     ButtonInit();
     ADCInit();
     freq_timer_init();
+    PWM_audio_init();
 
     // initialize timer 3 in one-shot mode for polled timing
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER3);
@@ -212,19 +260,24 @@ void modify_settings(){
         //modifies oscilloscope settings
 
         if(buttonPressed & 4){
-            //rising trigger
-           triggerValue = 1;
-           //Semaphore_post(waveform_sem0);
+            //increases period
+            factor = factor + 1;
+            displayFF = false;
+            PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,roundf((float)gSystemClock*factor/PWM_FREQUENCY));
         }
         else if(buttonPressed & 8){
-            //falling trigger
-            triggerValue = 2;
-            //Semaphore_post(waveform_sem0);
+            //decreases period
+            factor = factor - 1;
+            displayFF = false;
+            PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,roundf((float)gSystemClock*factor/PWM_FREQUENCY));
         }
         //changes the voltage scale
         else if(buttonPressed & 2){
             updateVoltageScale();
             //Semaphore_post(processing_sem1);
+        }
+        else if(buttonPressed & 1){
+            displayFFT = true;
         }
         Semaphore_post(display_sem2); //signal display task
     }
@@ -274,11 +327,48 @@ int FallingTrigger(void) // search for rising edge trigger
 void triggerSearch(void){
     IntMasterEnable();
     //int triggerValue = 0;
+
     while(true){
         Semaphore_pend(waveform_sem0, BIOS_WAIT_FOREVER);
-        int a;
-        for(a = 0; a <1024; a++){
-            gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+        if(triggerValue == 1 && !displayFFT){
+            triggerIndex = RisingTrigger();
+            //if no trigger value is found
+            //if(triggerFound == false) triggerValue = 0;
+                int index = 0;
+                index = triggerIndex - 64;
+
+                int a;
+                for(a = 0; a <128; a++){
+                    gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+                }
+        }
+
+
+        //find falling trigger
+        if(triggerValue == 2  && !displayFFT){
+            triggerIndex = FallingTrigger();
+            //if no trigger value is found
+            //if(triggerFound == false) triggerValue = 0;
+        }
+
+        //copy into buffer
+        //if there is a trigger, copy values to gCopiedBuffer starting from the triggerIndex - 64 (left most pixel of the LCD)
+        if(triggerFound && !displayFFT){
+
+            int index = 0;
+            index = triggerIndex - 64;
+            int a;
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(index+a)];
+            }
+        }
+        //if there is no trigger found, copy values from ADC to gCopiedBuffer
+        else{
+            triggerFound == false;
+            int a;
+            for(a = 0; a <128; a++){
+                gCopiedBuffer[a] = gADCBuffer[ADC_BUFFER_WRAP(a)];
+            }
         }
         Semaphore_post(processing_sem1);
     }
@@ -312,19 +402,6 @@ void processing(void){
             out_db[z] = 250 + (-10 * log10f(out[z].r * out[z].r + out[z].i * out[z].i));
 
         }
-
-//        float Vmultiplyer;
-//        if(currVoltageScaleInt < 3){
-//            Vmultiplyer = 0.001;
-//        }else{
-//            Vmultiplyer = 1.0;
-//        }
-//
-//        float fScale = (3.3 * 20)/((1 << 12) * (atof(gVoltageScaleStr[currVoltageScaleInt])*Vmultiplyer));
-//        int a;
-//        for(a = 0; a < 128; a++){
-//            ADC_scaled_values[a] = LCD_VERTICAL_MAX/2 - (int)roundf(fScale * ((int)gCopiedBuffer[a] - 2090));
-//        }
         Semaphore_post(display_sem2);
         Semaphore_post(waveform_sem0);
 
@@ -366,11 +443,20 @@ void display(void){
 
         GrContextForegroundSet(&sContext, ClrYellow);
 
-        int y = 0;
-        for(y = 0; y <128; y++){
-            if(y+1 < 128){
-                //GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
-                GrLineDrawV(&sContext, y,  out_db[y],  out_db[y+1]);
+        if(displayFFT){
+            int y = 0;
+            for(y = 0; y <128; y++){
+                if(y+1 < 128){
+                    GrLineDrawV(&sContext, y,  out_db[y],  out_db[y+1]);
+                }
+            }
+
+        }else{
+            int y = 0;
+            for(y = 0; y <128; y++){
+                if(y+1 < 128){
+                    GrLineDrawV(&sContext, y,  ADC_scaled_values[y],  ADC_scaled_values[y+1]);
+                }
             }
         }
 
@@ -393,9 +479,14 @@ void display(void){
 
         //print frequency
         frequency = freq_calc();
-        char freqStr[16];
-        snprintf(freqStr, sizeof(freqStr),  "F = %04f% Hz", frequency);
-        GrStringDrawCentered(&sContext, freqStr, -1, 60, 100, false);
+        char freqStr[12];
+        snprintf(freqStr, sizeof(freqStr), "f = %03f Hz", frequency);
+        GrStringDrawCentered(&sContext, freqStr, -1, 60, 110, false);
+
+        char periodStr[10];
+        snprintf(periodStr, sizeof(periodStr), "T = %03u", period);
+        GrStringDrawCentered(&sContext, periodStr, -1, 60, 100, false);
+
 
         GrFlush(&sContext);
 
