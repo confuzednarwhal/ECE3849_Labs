@@ -136,7 +136,7 @@ void PWM_audio_init(){
     PWMGenEnable(PWM0_BASE, PWM_GEN_2);
     PWMGenIntTrigEnable(PWM0_BASE, PWM_GEN_2, PWM_INT_CNT_ZERO);
     //calculated gSamplingRateDivider
-    gSamplingRateDivider = period/AUDIO_SAMPLING_RATE;
+    gSamplingRateDivider =  AUDIO_SAMPLING_RATE/audio_period;
 }
 
 void PWM_ISR(void)
@@ -273,7 +273,8 @@ void modify_settings(){
         }
         //changes the voltage scale
         else if(buttonPressed & 2){
-            updateVoltageScale();
+            //updateVoltageScale();
+            PWMIntEnable(PWM0_BASE, PWM_INT_GEN_2);
             //Semaphore_post(processing_sem1);
         }
         else if(buttonPressed & 1){
