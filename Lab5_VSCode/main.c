@@ -82,10 +82,11 @@ float cpu_load = 0.0;
 float out_db[128];
 bool displayFF = false;
 
-volatile uint32_t period = 0, last_count = 0, factor = 1;
+volatile uint32_t period = 0, last_count = 0;
+int32_t currPeriod, factor = 0;
 float frequency;
 uint32_t audio_period = 258;
-uint32_t PWM_AUDIO_FREQ = 495000;  //[Hz]
+//uint32_t PWM_AUDIO_FREQ = 465000;  //[Hz]
 
 
 uint32_t cpu_load_count(void)
@@ -131,12 +132,12 @@ void PWM_audio_init(){
     PWMClockSet(PWM0_BASE, PWM_SYSCLK_DIV_1);
     PWMGenConfigure(PWM0_BASE, PWM_GEN_2,PWM_GEN_MODE_DOWN | PWM_GEN_MODE_NO_SYNC);
     PWMGenPeriodSet(PWM0_BASE, PWM_GEN_2, audio_period);
-    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_5,roundf((float)gSystemClock/AUDIO_SAMPLING_RATE*0.5f));
+    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_5,audio_period/2);
     PWMOutputState(PWM0_BASE, PWM_OUT_5_BIT, true);
     PWMGenEnable(PWM0_BASE, PWM_GEN_2);
     PWMGenIntTrigEnable(PWM0_BASE, PWM_GEN_2, PWM_INT_CNT_ZERO);
-    //calculated gSamplingRateDivider
-    gSamplingRateDivider =  AUDIO_SAMPLING_RATE/audio_period;
+    //calculated gSamplingRateDivider (ISR/sample)
+    gSamplingRateDivider =  gSystemClock/audio_period/AUDIO_SAMPLING_RATE;
 }
 
 void PWM_ISR(void)
@@ -242,15 +243,6 @@ void scan_buttons(){
 
 }
 
-void updateVoltageScale(){
-    if(currVoltageScaleInt == 4){
-        //creates a wrap
-        currVoltageScaleInt = 0;
-    }else{
-        currVoltageScaleInt++;
-    }
-}
-
 //mid priority: processes user input from button mailbox
 //              if not button pressed, task remains blocked, waiting on mailbox
 //              signals display task
@@ -261,21 +253,21 @@ void modify_settings(){
 
         if(buttonPressed & 4){
             //increases period
-            factor = factor + 1;
+            factor++;
+            currPeriod = factor + gSystemClock/PWM_FREQUENCY;
             displayFF = false;
-            PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,roundf((float)gSystemClock*factor/PWM_FREQUENCY));
+            PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1, currPeriod);
         }
         else if(buttonPressed & 8){
             //decreases period
-            factor = factor - 1;
+            factor--;
+            currPeriod = gSystemClock/PWM_FREQUENCY + factor;
             displayFF = false;
-            PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,roundf((float)gSystemClock*factor/PWM_FREQUENCY));
+            PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1,currPeriod);
         }
-        //changes the voltage scale
+        //enables PWM
         else if(buttonPressed & 2){
-            //updateVoltageScale();
             PWMIntEnable(PWM0_BASE, PWM_INT_GEN_2);
-            //Semaphore_post(processing_sem1);
         }
         else if(buttonPressed & 1){
             displayFFT = true;
@@ -334,7 +326,6 @@ void triggerSearch(void){
         if(triggerValue == 1 && !displayFFT){
             triggerIndex = RisingTrigger();
             //if no trigger value is found
-            //if(triggerFound == false) triggerValue = 0;
                 int index = 0;
                 index = triggerIndex - 64;
 
@@ -461,11 +452,6 @@ void display(void){
             }
         }
 
-
-        //prints voltage scale
-//        GrContextForegroundSet(&sContext, ClrWhite);  //white text
-//        GrStringDrawCentered(&sContext, gVoltageScaleStr[currVoltageScaleInt], 6, 30, 10, false);
-
         //calculates CPU load
         count_loaded = cpu_load_count();
         cpu_load = 1.0f - (float)count_loaded/count_unloaded; // compute CPU load
@@ -481,9 +467,10 @@ void display(void){
         //print frequency
         frequency = freq_calc();
         char freqStr[12];
-        snprintf(freqStr, sizeof(freqStr), "f = %03f Hz", frequency);
+        snprintf(freqStr, sizeof(freqStr), "f = %05f Hz", frequency);
         GrStringDrawCentered(&sContext, freqStr, -1, 60, 110, false);
 
+        //prints period
         char periodStr[10];
         snprintf(periodStr, sizeof(periodStr), "T = %03u", period);
         GrStringDrawCentered(&sContext, periodStr, -1, 60, 100, false);
